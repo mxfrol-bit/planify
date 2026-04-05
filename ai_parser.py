@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import httpx
-from datetime import date
+from datetime import date, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -12,18 +12,28 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 
 def get_prompt(text: str) -> str:
-    today_str = date.today().isoformat()
-    return f"""Сегодня {today_str}. Пользователь пишет боту-планировщику: "{text}"
+    today = date.today()
+    dates = {
+        "сегодня": today.isoformat(),
+        "завтра": (today + timedelta(1)).isoformat(),
+        "послезавтра": (today + timedelta(2)).isoformat(),
+        "через неделю": (today + timedelta(7)).isoformat(),
+    }
+    # Add weekday names for next 7 days
+    ru_days = ["понедельник","вторник","среда","четверг","пятница","суббота","воскресенье"]
+    for i in range(1, 8):
+        d = today + timedelta(i)
+        dates[ru_days[d.weekday()]] = d.isoformat()
 
-Считай это задачей если там есть любое действие, встреча, дело, событие или напоминание.
-Если человек что-то пишет боту-планировщику — почти всегда это задача.
+    dates_hint = ", ".join([f"{k}={v}" for k, v in dates.items()])
 
-Верни JSON:
-{{"is_task": true, "title": "короткое название действия", "emoji": "подходящий эмодзи", "deadline": "YYYY-MM-DD или null", "priority": "urgent/high/medium/low", "category": "work/personal/health/learning/other"}}
-
-Если это явно НЕ задача (приветствие, вопрос боту, случайный текст) — верни: {{"is_task": false}}
-
-Только JSON без пояснений."""
+    return (
+        f"Сегодня {today.isoformat()}. Даты: {dates_hint}.\n"
+        f"Сообщение пользователя: {text}\n\n"
+        "Верни JSON (без markdown):\n"
+        'если это задача: {"is_task":true,"title":"название","emoji":"эмодзи","deadline":"YYYY-MM-DD или null","time":"HH:MM или null","priority":"urgent/high/medium/low","category":"work/personal/health/learning/other"}\n'
+        'если не задача: {"is_task":false}'
+    )
 
 
 async def parse_with_gemini(text: str) -> dict | None:
@@ -32,13 +42,15 @@ async def parse_with_gemini(text: str) -> dict | None:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(url, json={
                 "contents": [{"parts": [{"text": get_prompt(text)}]}],
-                "generationConfig": {"maxOutputTokens": 200, "temperature": 0.1}
+                "generationConfig": {"maxOutputTokens": 300, "temperature": 0}
             })
         raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
         raw = raw.replace("```json", "").replace("```", "").strip()
-        return json.loads(raw)
+        result = json.loads(raw)
+        logger.info(f"Gemini OK: {result}")
+        return result
     except Exception as e:
-        logger.error(f"Gemini error: {e}")
+        logger.error(f"Gemini error: {e} | response: {resp.text if 'resp' in dir() else 'no response'}")
         return None
 
 
@@ -48,7 +60,7 @@ async def parse_with_anthropic(text: str) -> dict | None:
             resp = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                json={"model": "claude-haiku-4-5-20251001", "max_tokens": 200,
+                json={"model": "claude-haiku-4-5-20251001", "max_tokens": 300,
                       "messages": [{"role": "user", "content": get_prompt(text)}]}
             )
         return json.loads(resp.json()["content"][0]["text"].strip())
@@ -63,7 +75,7 @@ async def parse_with_openrouter(text: str) -> dict | None:
             resp = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "content-type": "application/json"},
-                json={"model": "google/gemini-flash-1.5", "max_tokens": 200,
+                json={"model": "google/gemini-flash-1.5", "max_tokens": 300,
                       "messages": [{"role": "user", "content": get_prompt(text)}]}
             )
         raw = resp.json()["choices"][0]["message"]["content"].strip()
