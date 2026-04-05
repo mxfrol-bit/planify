@@ -13,42 +13,26 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 def get_prompt(text: str) -> str:
     today = date.today()
-    tomorrow = (today + timedelta(days=1)).isoformat()
-    weekdays = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
-    # Next 7 days with weekday names
-    days_ref = "\n".join([
-        f"- «{weekdays[(today + timedelta(i)).weekday()]}» = {(today + timedelta(i)).isoformat()}"
-        for i in range(1, 8)
-    ])
+    dates = {
+        "сегодня": today.isoformat(),
+        "завтра": (today + timedelta(1)).isoformat(),
+        "послезавтра": (today + timedelta(2)).isoformat(),
+        "через неделю": (today + timedelta(7)).isoformat(),
+    }
+    ru_days = ["понедельник","вторник","среда","четверг","пятница","суббота","воскресенье"]
+    for i in range(1, 8):
+        d = today + timedelta(i)
+        dates[ru_days[d.weekday()]] = d.isoformat()
 
-    return f"""Сегодня {today.isoformat()} ({weekdays[today.weekday()]}).
-«Завтра» = {tomorrow}.
-Ближайшие дни:
-{days_ref}
+    dates_hint = ", ".join([f"{k}={v}" for k, v in dates.items()])
 
-Пользователь пишет боту-планировщику: "{text}"
-
-Извлеки задачу и верни JSON:
-{{
-  "is_task": true,
-  "title": "короткое название (убери слова типа 'нужно', 'надо', 'завтра')",
-  "emoji": "один подходящий эмодзи",
-  "deadline": "YYYY-MM-DD если упомянута дата/время/день, иначе null",
-  "time": "HH:MM если упомянуто время, иначе null",
-  "priority": "urgent если срочно/важно, high если скоро дедлайн, medium по умолчанию, low если не важно",
-  "category": "work/personal/health/learning/other"
-}}
-
-Правила для deadline:
-- "завтра", "завтра утром", "завтра в 9" → {tomorrow}
-- "сегодня" → {today.isoformat()}
-- "в пятницу", "до пятницы" → ближайшая пятница из списка выше
-- "через неделю" → {(today + timedelta(7)).isoformat()}
-- конкретная дата → конвертируй в YYYY-MM-DD
-
-Если это явно НЕ задача (случайный текст, вопрос боту) → {{"is_task": false}}
-
-Только JSON без пояснений и markdown."""
+    return (
+        f"Сегодня {today.isoformat()}. Даты: {dates_hint}.\n"
+        f"Сообщение пользователя: {text}\n\n"
+        "Верни JSON (без markdown):\n"
+        'если это задача: {"is_task":true,"title":"название","emoji":"эмодзи","deadline":"YYYY-MM-DD или null","time":"HH:MM или null","priority":"urgent/high/medium/low","category":"work/personal/health/learning/other"}\n'
+        'если не задача: {"is_task":false}'
+    )
 
 
 async def parse_with_gemini(text: str) -> dict | None:
@@ -61,9 +45,11 @@ async def parse_with_gemini(text: str) -> dict | None:
             })
         raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
         raw = raw.replace("```json", "").replace("```", "").strip()
-        return json.loads(raw)
+        result = json.loads(raw)
+        logger.info(f"Gemini OK: {result}")
+        return result
     except Exception as e:
-        logger.error(f"Gemini error: {e}")
+        logger.error(f"Gemini error: {e} | resp: {resp.text[:200] if 'resp' in dir() else 'none'}")
         return None
 
 
