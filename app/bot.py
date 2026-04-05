@@ -137,12 +137,20 @@ async def tasks_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         days_str = ""
         if t["deadline"]:
             delta = (date.fromisoformat(t["deadline"]) - today).days
-            days_str = f" · {delta}д" if delta >= 0 else " · ⚠️"
+            if delta < 0:
+                days_str = " · ⚠️просрочено"
+            elif delta == 0:
+                days_str = " · сегодня"
+            else:
+                days_str = f" · {delta}д"
         icon = {"urgent": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(t["priority"], "⚪")
-        buttons.append([InlineKeyboardButton(f"{icon} {t['emoji']} {t['title']}{days_str}"[:55],
-                                             callback_data=f"task_done:{t['id']}"),
-                        InlineKeyboardButton("🗑", callback_data=f"task_del:{t['id']}")])
-    await update.message.reply_text(f"📋 *Задачи* ({len(tasks)})\n", parse_mode="Markdown",
+        label = f"{icon} {t['emoji']} {t['title']}{days_str}"[:55]
+        buttons.append([
+            InlineKeyboardButton("✅", callback_data=f"task_done:{t['id']}"),
+            InlineKeyboardButton(label, callback_data=f"task_view:{t['id']}"),
+            InlineKeyboardButton("🗑", callback_data=f"task_del:{t['id']}"),
+        ])
+    await update.message.reply_text(f"📋 *Задачи* ({len(tasks)})\n\n_Нажми ✅ чтобы выполнить_", parse_mode="Markdown",
                                     reply_markup=InlineKeyboardMarkup(buttons))
 
 async def task_action_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -152,6 +160,28 @@ async def task_action_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if query.data.startswith("task_done:"):
         db.toggle_task(query.data.split(":")[1], uid)
         await query.edit_message_text("✅ Задача выполнена! 🎉")
+    elif query.data.startswith("task_view:"):
+        task_id = query.data.split(":")[1]
+        tasks = db.get_tasks(uid)
+        t = next((x for x in tasks if x["id"] == task_id), None)
+        if t:
+            today = date.today()
+            dl = ""
+            if t["deadline"]:
+                delta = (date.fromisoformat(t["deadline"]) - today).days
+                dl = f"\n📅 Дедлайн: {t['deadline']}"
+                if delta < 0: dl += f" (просрочено на {abs(delta)}д)"
+                elif delta == 0: dl += " (сегодня!)"
+                else: dl += f" (через {delta}д)"
+            time_str = f"\n⏰ Время: {t.get('time', '')}" if t.get("time") else ""
+            icon = {"urgent": "🔴 Срочно", "high": "🟠 Высокий", "medium": "🟡 Средний", "low": "🟢 Низкий"}.get(t["priority"], "")
+            cat = {"work": "💼 Работа", "personal": "👤 Личное", "health": "🏃 Здоровье", "learning": "📚 Учёба"}.get(t["category"], "")
+            kb = [[InlineKeyboardButton("✅ Выполнить", callback_data=f"task_done:{task_id}"),
+                   InlineKeyboardButton("🗑 Удалить", callback_data=f"task_del:{task_id}")],
+                  [InlineKeyboardButton("← Назад", callback_data="cmd:tasks")]]
+            await query.edit_message_text(
+                f"*{t['emoji']} {t['title']}*{dl}{time_str}\n🎯 {icon}\n🗂 {cat}",
+                parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
     elif query.data.startswith("task_del:"):
         db.delete_task(query.data.split(":")[1], uid)
         await query.edit_message_text("🗑 Удалено.")
@@ -273,7 +303,7 @@ def build_application() -> Application:
     app.add_handler(habit_conv)
     app.add_handler(task_conv)
     app.add_handler(CallbackQueryHandler(toggle_habit_callback, pattern="^toggle_habit:"))
-    app.add_handler(CallbackQueryHandler(task_action_callback, pattern="^(task_done|task_del|ai_ok):?"))
+    app.add_handler(CallbackQueryHandler(task_action_callback, pattern="^(task_done|task_view|task_del|ai_ok)"))
     app.add_handler(CallbackQueryHandler(cmd_callback, pattern="^cmd:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))
 

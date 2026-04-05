@@ -62,7 +62,12 @@ def get_current_user(x_token: str = Header(None)):
 
 # ── Telegram Webhook ─────────────────────────────────────────────────────
 
-@app.post("/webhook")
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+
 async def telegram_webhook(request: Request):
     data = await request.json()
     update = Update.de_json(data, bot_app.bot)
