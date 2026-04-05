@@ -36,19 +36,24 @@ async def handle_free_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
 
     if ai_available():
-        msg = await update.message.reply_text("⏳ Анализирую...")
+        msg = await update.message.reply_text("⏳ Записываю...")
         parsed = await parse_task(text)
+        # Всегда сохраняем — если AI распознал, берём его данные, иначе сохраняем текст как есть
         if parsed and parsed.get("is_task"):
-            task = db.create_task(uid, parsed.get("title", text), parsed.get("emoji", "📌"),
-                                  parsed.get("deadline"), parsed.get("priority", "medium"), parsed.get("category", "personal"))
-            dl = f"\n📅 {parsed['deadline']}" if parsed.get("deadline") else ""
-            pr = PRIORITY_MAP.get(parsed.get("priority", "medium"), "")
-            kb = [[InlineKeyboardButton("✅ Окей", callback_data="ai_ok"),
-                   InlineKeyboardButton("🗑 Удалить", callback_data=f"task_del:{task['id']}")]]
-            await msg.edit_text(f"📌 Записал:\n\n*{parsed['emoji']} {parsed['title']}*{dl}\n{pr}",
-                                parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+            title = parsed.get("title", text)
+            emoji = parsed.get("emoji", "📌")
+            deadline = parsed.get("deadline")
+            priority = parsed.get("priority", "medium")
+            category = parsed.get("category", "personal")
         else:
-            await msg.edit_text("Не распознал как задачу 🤔\n\nПопробуй:\n• _«Купить молоко до пятницы»_\n• _«Встреча с Олегом завтра, срочно»_\n\nИли /addtask для ручного ввода.", parse_mode="Markdown")
+            title, emoji, deadline, priority, category = text, "📌", None, "medium", "personal"
+        task = db.create_task(uid, title, emoji, deadline, priority, category)
+        dl = f"\n📅 {deadline}" if deadline else ""
+        pr = PRIORITY_MAP.get(priority, "")
+        kb = [[InlineKeyboardButton("✅ Окей", callback_data="ai_ok"),
+               InlineKeyboardButton("🗑 Удалить", callback_data=f"task_del:{task['id']}")]]
+        await msg.edit_text(f"📌 Записал:\n\n*{emoji} {title}*{dl}\n{pr}",
+                            parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
     else:
         emoji, title = "📌", text
         if len(text) > 1 and not text[0].isalnum():
