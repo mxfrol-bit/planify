@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planify — Личный планировщик</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f0f14;
+    --surface: #1a1a24;
+    --surface2: #22222f;
+    --border: #2d2d3d;
+    --accent: #7c6ff7;
+    --accent2: #a78bfa;
+    --green: #34d399;
+    --orange: #fb923c;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --text: #e2e2f0;
+    --muted: #6b6b8a;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+
+  /* Layout */
+  .layout { display: flex; min-height: 100vh; }
+  .sidebar { width: 240px; background: var(--surface); border-right: 1px solid var(--border); padding: 24px 16px; display: flex; flex-direction: column; gap: 8px; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
+  .main { margin-left: 240px; flex: 1; padding: 32px; max-width: 1100px; }
+  
+  /* Sidebar */
+  .logo { font-size: 22px; font-weight: 800; color: var(--accent2); padding: 0 8px 16px; border-bottom: 1px solid var(--border); margin-bottom: 8px; letter-spacing: -0.5px; }
+  .logo span { color: var(--muted); font-weight: 400; font-size: 13px; display: block; margin-top: 2px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; cursor: pointer; color: var(--muted); font-size: 14px; font-weight: 500; transition: all .15s; }
+  .nav-item:hover { background: var(--surface2); color: var(--text); }
+  .nav-item.active { background: linear-gradient(135deg, #4f46e5, #7c6ff7); color: white; }
+  .nav-icon { font-size: 18px; width: 22px; text-align: center; }
+  .nav-sep { height: 1px; background: var(--border); margin: 8px 0; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
+  .section-title { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
+
+  /* Stats row */
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .stat-value { font-size: 32px; font-weight: 800; line-height: 1; }
+  .stat-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* Progress ring */
+  .ring-wrap { display: flex; align-items: center; gap: 16px; }
+  .ring-canvas { width: 80px !important; height: 80px !important; }
+  .ring-info .big { font-size: 28px; font-weight: 800; }
+  .ring-info .sub { font-size: 12px; color: var(--muted); }
+
+  /* Habits */
+  .habit-item { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--surface2); border-radius: 12px; margin-bottom: 8px; cursor: pointer; transition: all .15s; border: 2px solid transparent; }
+  .habit-item:hover { border-color: var(--border); }
+  .habit-item.done { border-color: var(--green); background: rgba(52, 211, 153, 0.05); }
+  .habit-check { width: 24px; height: 24px; border-radius: 8px; border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all .15s; }
+  .habit-item.done .habit-check { background: var(--green); border-color: var(--green); }
+  .habit-name { flex: 1; font-size: 14px; font-weight: 500; }
+  .habit-item.done .habit-name { text-decoration: line-through; color: var(--muted); }
+  .habit-delete { opacity: 0; color: var(--muted); font-size: 16px; transition: opacity .15s; }
+  .habit-item:hover .habit-delete { opacity: 1; }
+
+  /* Tasks */
+  .task-item { display: flex; align-items: flex-start; gap: 12px; padding: 16px; background: var(--surface2); border-radius: 12px; margin-bottom: 8px; cursor: pointer; transition: all .15s; border: 1px solid transparent; }
+  .task-item:hover { border-color: var(--border); }
+  .task-item.done { opacity: 0.5; }
+  .task-check { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--muted); flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-top: 1px; transition: all .15s; }
+  .task-item.done .task-check { background: var(--green); border-color: var(--green); }
+  .task-body { flex: 1; }
+  .task-title { font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+  .task-item.done .task-title { text-decoration: line-through; color: var(--muted); }
+  .task-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .badge { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+  .badge-urgent { background: rgba(248,113,113,.15); color: var(--red); }
+  .badge-high { background: rgba(251,146,60,.15); color: var(--orange); }
+  .badge-medium { background: rgba(251,191,36,.15); color: var(--yellow); }
+  .badge-low { background: rgba(52,211,153,.15); color: var(--green); }
+  .badge-work { background: rgba(124,111,247,.15); color: var(--accent2); }
+  .badge-personal { background: rgba(148,163,184,.1); color: var(--muted); }
+  .badge-health { background: rgba(52,211,153,.1); color: var(--green); }
+  .badge-learning { background: rgba(251,191,36,.1); color: var(--yellow); }
+  .deadline-tag { font-size: 11px; color: var(--muted); }
+  .deadline-tag.overdue { color: var(--red); }
+  .deadline-tag.today { color: var(--orange); }
+
+  /* Forms / Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all .15s; }
+  .btn-primary { background: linear-gradient(135deg, #4f46e5, #7c6ff7); color: white; }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(124,111,247,.4); }
+  .btn-ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-ghost:hover { background: var(--border); }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+  input, select, textarea {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); padding: 10px 14px; font-size: 14px; outline: none; transition: border .15s;
+    font-family: inherit; width: 100%;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  select option { background: var(--surface2); }
+
+  .form-row { display: flex; gap: 12px; margin-bottom: 16px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .form-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+
+  /* Week chart */
+  .week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+  .week-day { background: var(--surface2); border-radius: 10px; padding: 12px 8px; text-align: center; }
+  .week-day-name { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .week-day-bar { height: 60px; background: var(--border); border-radius: 6px; overflow: hidden; display: flex; align-items: flex-end; }
+  .week-day-fill { width: 100%; border-radius: 6px; background: linear-gradient(to top, #4f46e5, #a78bfa); transition: height .4s ease; }
+  .week-day-pct { font-size: 11px; font-weight: 700; margin-top: 6px; }
+
+  /* Tab system */
+  .tabs { display: flex; gap: 4px; background: var(--surface2); padding: 4px; border-radius: 12px; margin-bottom: 20px; width: fit-content; }
+  .tab { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--muted); transition: all .15s; }
+  .tab.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+
+  /* Page system */
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* Add forms */
+  .add-form { background: var(--surface2); border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid var(--border); }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface); border: 1px solid var(--border); padding: 12px 20px; border-radius: 12px; font-size: 14px; opacity: 0; transform: translateY(10px); transition: all .3s; z-index: 100; box-shadow: 0 8px 32px rgba(0,0,0,.4); }
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  /* Loader */
+  .loader { display: flex; align-items: center; justify-content: center; padding: 40px; color: var(--muted); font-size: 14px; }
+
+  /* Empty state */
+  .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
+  .empty-icon { font-size: 40px; margin-bottom: 12px; }
+
+  /* Mobile */
+  @media (max-width: 768px) {
+    .sidebar { width: 60px; padding: 16px 8px; }
+    .logo { display: none; }
+    .nav-label { display: none; }
+    .nav-item { justify-content: center; padding: 10px; }
+    .main { margin-left: 60px; padding: 16px; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+
+  /* Donut */
+  .donut-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+  .donut-label { position: absolute; font-size: 18px; font-weight: 800; }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="logo">Planify <span>твой планировщик</span></div>
+    <div class="nav-item active" onclick="showPage('dashboard', this)">
+      <span class="nav-icon">📊</span><span class="nav-label">Дашборд</span>
+    </div>
+    <div class="nav-item" onclick="showPage('habits', this)">
+      <span class="nav-icon">🎯</span><span class="nav-label">Привычки</span>
+    </div>
+    <div class="nav-item" onclick="showPage('tasks', this)">
+      <span class="nav-icon">📋</span><span class="nav-label">Задачи</span>
+    </div>
+    <div class="nav-sep"></div>
+    <div class="nav-item" onclick="showPage('settings', this)">
+      <span class="nav-icon">⚙️</span><span class="nav-label">Настройки</span>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- DASHBOARD -->
+    <div id="page-dashboard" class="page active">
+      <div class="section-title">Сегодня, <span id="today-date">...</span></div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Прогресс сегодня</div>
+          <div class="ring-wrap">
+            <div class="donut-wrap">
+              <canvas id="ring-today" width="80" height="80" class="ring-canvas"></canvas>
+              <div class="donut-label" id="ring-today-pct">0%</div>
+            </div>
+            <div class="ring-info">
+              <div class="big" id="stat-habits-done">0</div>
+              <div class="sub">из <span id="stat-habits-total">0</span> привычек</div>
+            </div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Прогресс за неделю</div>
+          <div class="ring-wrap">
+            <div class="donut-wrap">
+              <canvas id="ring-week" width="80" height="80" class="ring-canvas"></canvas>
+              <div class="donut-label" id="ring-week-pct">0%</div>
+            </div>
+            <div class="ring-info">
+              <div class="big" id="stat-week-pct">0%</div>
+              <div class="sub">выполнение</div>
+            </div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Активные задачи</div>
+          <div class="stat-value" id="stat-tasks-pending">0</div>
+          <div class="stat-sub">в работе</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Выполнено задач</div>
+          <div class="stat-value" id="stat-tasks-done" style="color:var(--green)">0</div>
+          <div class="stat-sub">всего</div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <!-- Today habits -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <div style="font-weight:700">Привычки на сегодня</div>
+            <button class="btn btn-ghost btn-sm" onclick="showPage('habits', document.querySelector('.nav-item:nth-child(3)'))">Все →</button>
+          </div>
+          <div id="dash-habits">
+            <div class="loader">Загрузка...</div>
+          </div>
+        </div>
+
+        <!-- Week chart -->
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:16px">Неделя в цифрах</div>
+          <div class="week-grid" id="week-chart">
+            <div class="loader">Загрузка...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent tasks -->
+      <div class="card" style="margin-top:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div style="font-weight:700">Ближайшие задачи</div>
+          <button class="btn btn-ghost btn-sm" onclick="showPage('tasks', document.querySelector('.nav-item:nth-child(4)'))">Все →</button>
+        </div>
+        <div id="dash-tasks"><div class="loader">Загрузка...</div></div>
+      </div>
+    </div>
+
+    <!-- HABITS -->
+    <div id="page-habits" class="page">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+        <div class="section-title" style="margin-bottom:0">Трекер привычек</div>
+        <button class="btn btn-primary" onclick="toggleAddHabit()">➕ Добавить</button>
+      </div>
+
+      <!-- Add form -->
+      <div id="habit-form" class="add-form" style="display:none">
+        <div class="form-row">
+          <div class="form-group" style="flex:0.3">
+            <label class="form-label">Эмодзи</label>
+            <input id="h-emoji" value="✅" maxlength="2" style="text-align:center;font-size:20px">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Название привычки</label>
+            <input id="h-name" placeholder="Например: Пробежка 30 мин" onkeydown="if(event.key==='Enter')addHabit()">
+          </div>
+          <div class="form-group" style="flex:0.5">
+            <label class="form-label">Частота</label>
+            <select id="h-freq">
+              <option value="daily">Ежедневно</option>
+              <option value="weekly">Еженедельно</option>
+              <option value="monthly">Ежемесячно</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="addHabit()">Добавить</button>
+          <button class="btn btn-ghost" onclick="toggleAddHabit()">Отмена</button>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active" onclick="setHabitsTab('today', this)">Сегодня</div>
+        <div class="tab" onclick="setHabitsTab('all', this)">Все привычки</div>
+      </div>
+
+      <div id="habits-list"><div class="loader">Загрузка...</div></div>
+    </div>
+
+    <!-- TASKS -->
+    <div id="page-tasks" class="page">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+        <div class="section-title" style="margin-bottom:0">Мои задачи</div>
+        <button class="btn btn-primary" onclick="toggleAddTask()">➕ Добавить</button>
+      </div>
+
+      <!-- Add task form -->
+      <div id="task-form" class="add-form" style="display:none">
+        <div class="form-row">
+          <div class="form-group" style="flex:0.3">
+            <label class="form-label">Эмодзи</label>
+            <input id="t-emoji" value="📌" maxlength="2" style="text-align:center;font-size:20px">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Название задачи</label>
+            <input id="t-title" placeholder="Например: Подготовить отчёт">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Дедлайн</label>
+            <input id="t-deadline" type="date">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Приоритет</label>
+            <select id="t-priority">
+              <option value="urgent">🔴 Срочно</option>
+              <option value="high">🟠 Высокий</option>
+              <option value="medium" selected>🟡 Средний</option>
+              <option value="low">🟢 Низкий</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Категория</label>
+            <select id="t-category">
+              <option value="work">💼 Работа</option>
+              <option value="personal" selected>👤 Личное</option>
+              <option value="health">🏃 Здоровье</option>
+              <option value="learning">📚 Учёба</option>
+              <option value="other">📦 Другое</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="addTask()">Добавить задачу</button>
+          <button class="btn btn-ghost" onclick="toggleAddTask()">Отмена</button>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active" onclick="setTasksTab('pending', this)">В работе</div>
+        <div class="tab" onclick="setTasksTab('done', this)">Выполнено</div>
+      </div>
+
+      <div id="tasks-list"><div class="loader">Загрузка...</div></div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div id="page-settings" class="page">
+      <div class="section-title">Настройки</div>
+      <div class="card" style="max-width:500px">
+        <p style="color:var(--muted);font-size:14px;margin-bottom:16px">
+          Для работы с сервисом используйте Telegram бота. Ссылка на бота и ваш персональный токен доступа:
+        </p>
+        <div style="background:var(--surface2);border-radius:10px;padding:12px 16px;font-size:13px;font-family:monospace;word-break:break-all;color:var(--accent2)" id="token-display">...</div>
+        <div style="margin-top:16px;font-size:13px;color:var(--muted)">
+          💡 Открывайте дашборд по ссылке из Telegram — /web команда в боте
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── Config ───────────────────────────────────────────────────────────────
+const params = new URLSearchParams(location.search);
+let TOKEN = params.get('token') || localStorage.getItem('planify_token');
+if (TOKEN) localStorage.setItem('planify_token', TOKEN);
+
+const API = '';  // same origin
+const today = new Date().toISOString().slice(0, 10);
+let habitsTab = 'today';
+let tasksTab = 'pending';
+let todayChart = null, weekChart = null;
+
+// ─── Utils ────────────────────────────────────────────────────────────────
+function toast(msg, ok = true) {
+  const el = document.getElementById('toast');
+  el.textContent = (ok ? '✅ ' : '❌ ') + msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+function api(path, opts = {}) {
+  const sep = path.includes('?') ? '&' : '?';
+  return fetch(`${API}${path}${sep}token=${TOKEN}`, opts).then(r => r.json());
+}
+
+function formatDays(days) {
+  if (days === null || days === undefined) return '';
+  if (days < 0) return `<span class="deadline-tag overdue">⚠️ просрочено на ${Math.abs(days)}д</span>`;
+  if (days === 0) return `<span class="deadline-tag today">📅 сегодня</span>`;
+  return `<span class="deadline-tag">📅 через ${days}д</span>`;
+}
+
+const PRIORITY_BADGE = {
+  urgent: '<span class="badge badge-urgent">🔴 Срочно</span>',
+  high: '<span class="badge badge-high">🟠 Высокий</span>',
+  medium: '<span class="badge badge-medium">🟡 Средний</span>',
+  low: '<span class="badge badge-low">🟢 Низкий</span>',
+};
+const CATEGORY_BADGE = {
+  work: '<span class="badge badge-work">💼 Работа</span>',
+  personal: '<span class="badge badge-personal">👤 Личное</span>',
+  health: '<span class="badge badge-health">🏃 Здоровье</span>',
+  learning: '<span class="badge badge-learning">📚 Учёба</span>',
+  other: '',
+};
+
+// ─── Pages ────────────────────────────────────────────────────────────────
+function showPage(name, navEl) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  if (navEl) navEl.classList.add('active');
+
+  if (name === 'dashboard') loadDashboard();
+  if (name === 'habits') loadHabits();
+  if (name === 'tasks') loadTasks();
+  if (name === 'settings') document.getElementById('token-display').textContent = TOKEN || 'не авторизован';
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  document.getElementById('today-date').textContent =
+    new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', weekday: 'long' });
+
+  const [stats, weekData, habits, tasks] = await Promise.all([
+    api('/api/stats'),
+    api('/api/stats/week'),
+    api(`/api/habits?date_str=${today}`),
+    api('/api/tasks?completed=false'),
+  ]);
+
+  // Stats
+  document.getElementById('stat-habits-done').textContent = stats.habits_done_today;
+  document.getElementById('stat-habits-total').textContent = stats.habits_total;
+  document.getElementById('stat-tasks-pending').textContent = stats.tasks_pending;
+  document.getElementById('stat-tasks-done').textContent = stats.tasks_done;
+  document.getElementById('ring-today-pct').textContent = stats.today_pct + '%';
+  document.getElementById('ring-week-pct').textContent = stats.week_pct + '%';
+  document.getElementById('stat-week-pct').textContent = stats.week_pct + '%';
+
+  drawRing('ring-today', stats.today_pct);
+  drawRing('ring-week', stats.week_pct);
+
+  // Week chart
+  const wc = document.getElementById('week-chart');
+  wc.innerHTML = weekData.map(d => `
+    <div class="week-day">
+      <div class="week-day-name">${d.weekday}</div>
+      <div class="week-day-bar">
+        <div class="week-day-fill" style="height:${d.pct}%"></div>
+      </div>
+      <div class="week-day-pct" style="color:${d.pct >= 80 ? 'var(--green)' : d.pct >= 50 ? 'var(--yellow)' : 'var(--muted)'}">${d.pct}%</div>
+    </div>
+  `).join('');
+
+  // Habits today (compact)
+  const dh = document.getElementById('dash-habits');
+  if (!habits.length) {
+    dh.innerHTML = '<div class="empty"><div class="empty-icon">🎯</div>Привычек пока нет</div>';
+  } else {
+    dh.innerHTML = habits.slice(0, 6).map(h => `
+      <div class="habit-item ${h.done_today ? 'done' : ''}" onclick="toggleHabit('${h.id}', this)">
+        <div class="habit-check">${h.done_today ? '✓' : ''}</div>
+        <div class="habit-name">${h.emoji} ${h.name}</div>
+      </div>
+    `).join('');
+  }
+
+  // Tasks (top 5)
+  const dt = document.getElementById('dash-tasks');
+  const sorted = tasks.sort((a, b) => {
+    const po = {urgent:0,high:1,medium:2,low:3};
+    return (po[a.priority]||2) - (po[b.priority]||2);
+  });
+  if (!sorted.length) {
+    dt.innerHTML = '<div class="empty"><div class="empty-icon">✅</div>Все задачи выполнены!</div>';
+  } else {
+    dt.innerHTML = sorted.slice(0, 5).map(t => `
+      <div class="task-item" onclick="toggleTask('${t.id}', this)">
+        <div class="task-check">${t.completed ? '✓' : ''}</div>
+        <div class="task-body">
+          <div class="task-title">${t.emoji} ${t.title}</div>
+          <div class="task-meta">
+            ${PRIORITY_BADGE[t.priority] || ''}
+            ${CATEGORY_BADGE[t.category] || ''}
+            ${formatDays(t.days_left)}
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+}
+
+function drawRing(id, pct) {
+  const canvas = document.getElementById(id);
+  if (!canvas) return;
+  const existing = Chart.getChart(canvas);
+  if (existing) existing.destroy();
+
+  const color = pct >= 80 ? '#34d399' : pct >= 50 ? '#fbbf24' : '#7c6ff7';
+  new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      datasets: [{
+        data: [pct, 100 - pct],
+        backgroundColor: [color, '#2d2d3d'],
+        borderWidth: 0,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      cutout: '72%',
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      animation: { animateRotate: true, duration: 800 },
+    }
+  });
+}
+
+// ─── Habits ───────────────────────────────────────────────────────────────
+async function loadHabits() {
+  const url = habitsTab === 'today'
+    ? `/api/habits?date_str=${today}`
+    : '/api/habits';
+  const habits = await api(url);
+  renderHabits(habits);
+}
+
+function renderHabits(habits) {
+  const el = document.getElementById('habits-list');
+  if (!habits.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🎯</div>Добавьте первую привычку!</div>';
+    return;
+  }
+  el.innerHTML = habits.map(h => `
+    <div class="habit-item ${h.done_today ? 'done' : ''}" id="habit-${h.id}">
+      <div class="habit-check" onclick="toggleHabit('${h.id}', this.closest('.habit-item'))">${h.done_today ? '✓' : ''}</div>
+      <div class="habit-name" onclick="toggleHabit('${h.id}', this.closest('.habit-item'))">${h.emoji} ${h.name}</div>
+      <div class="habit-delete" onclick="deleteHabit('${h.id}')">🗑</div>
+    </div>
+  `).join('');
+}
+
+async function toggleHabit(id, el) {
+  const res = await api(`/api/habits/${id}/toggle`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date: today }),
+  });
+  el.classList.toggle('done', res.done);
+  el.querySelector('.habit-check').textContent = res.done ? '✓' : '';
+  if (document.getElementById('page-dashboard').classList.contains('active')) loadDashboard();
+}
+
+async function addHabit() {
+  const name = document.getElementById('h-name').value.trim();
+  if (!name) return toast('Введите название', false);
+  const emoji = document.getElementById('h-emoji').value.trim() || '✅';
+  const freq = document.getElementById('h-freq').value;
+
+  await api('/api/habits', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, emoji, frequency: freq }),
+  });
+
+  document.getElementById('h-name').value = '';
+  toggleAddHabit();
+  toast('Привычка добавлена!');
+  loadHabits();
+}
+
+async function deleteHabit(id) {
+  if (!confirm('Удалить привычку?')) return;
+  await api(`/api/habits/${id}`, { method: 'DELETE' });
+  toast('Привычка удалена');
+  loadHabits();
+}
+
+function toggleAddHabit() {
+  const f = document.getElementById('habit-form');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  if (f.style.display === 'block') document.getElementById('h-name').focus();
+}
+
+function setHabitsTab(tab, el) {
+  habitsTab = tab;
+  document.querySelectorAll('#page-habits .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  loadHabits();
+}
+
+// ─── Tasks ────────────────────────────────────────────────────────────────
+async function loadTasks() {
+  const completed = tasksTab === 'done';
+  const tasks = await api(`/api/tasks?completed=${completed}`);
+  renderTasks(tasks);
+}
+
+function renderTasks(tasks) {
+  const el = document.getElementById('tasks-list');
+  if (!tasks.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">${tasksTab === 'done' ? '🏆' : '✅'}</div>${tasksTab === 'done' ? 'Пока нет выполненных задач' : 'Все задачи выполнены!'}</div>`;
+    return;
+  }
+  const sorted = tasks.sort((a, b) => {
+    if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
+    if (a.deadline) return -1;
+    if (b.deadline) return 1;
+    const po = {urgent:0,high:1,medium:2,low:3};
+    return (po[a.priority]||2) - (po[b.priority]||2);
+  });
+  el.innerHTML = sorted.map(t => `
+    <div class="task-item ${t.completed ? 'done' : ''}" id="task-${t.id}">
+      <div class="task-check" onclick="toggleTask('${t.id}', this.closest('.task-item'))">${t.completed ? '✓' : ''}</div>
+      <div class="task-body" onclick="toggleTask('${t.id}', this.closest('.task-item'))">
+        <div class="task-title">${t.emoji} ${t.title}</div>
+        <div class="task-meta">
+          ${PRIORITY_BADGE[t.priority] || ''}
+          ${CATEGORY_BADGE[t.category] || ''}
+          ${t.deadline ? formatDays(t.days_left) : ''}
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="deleteTask('${t.id}')" style="color:var(--muted)">🗑</button>
+    </div>
+  `).join('');
+}
+
+async function toggleTask(id, el) {
+  const res = await api(`/api/tasks/${id}/toggle`, { method: 'POST' });
+  if (res.completed) {
+    toast('Задача выполнена! 🎉');
+    el.style.opacity = '0';
+    setTimeout(() => loadTasks(), 400);
+  } else {
+    loadTasks();
+  }
+}
+
+async function addTask() {
+  const title = document.getElementById('t-title').value.trim();
+  if (!title) return toast('Введите название задачи', false);
+  const emoji = document.getElementById('t-emoji').value.trim() || '📌';
+  const deadline = document.getElementById('t-deadline').value || null;
+  const priority = document.getElementById('t-priority').value;
+  const category = document.getElementById('t-category').value;
+
+  await api('/api/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, emoji, deadline, priority, category }),
+  });
+
+  document.getElementById('t-title').value = '';
+  document.getElementById('t-deadline').value = '';
+  toggleAddTask();
+  toast('Задача добавлена!');
+  loadTasks();
+}
+
+async function deleteTask(id) {
+  if (!confirm('Удалить задачу?')) return;
+  await api(`/api/tasks/${id}`, { method: 'DELETE' });
+  toast('Задача удалена');
+  loadTasks();
+}
+
+function toggleAddTask() {
+  const f = document.getElementById('task-form');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  if (f.style.display === 'block') document.getElementById('t-title').focus();
+}
+
+function setTasksTab(tab, el) {
+  tasksTab = tab;
+  document.querySelectorAll('#page-tasks .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  loadTasks();
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────
+if (!TOKEN) {
+  document.querySelector('.main').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;min-height:80vh;flex-direction:column;gap:20px">
+      <div style="font-size:48px">🔐</div>
+      <div style="font-size:20px;font-weight:700">Нужна авторизация</div>
+      <div style="color:var(--muted);text-align:center;max-width:300px">
+        Откройте Telegram бота и введите команду <strong>/web</strong> чтобы получить ссылку на дашборд
+      </div>
+    </div>
+  `;
+} else {
+  loadDashboard();
+}
+</script>
+</body>
+</html>
