@@ -13,14 +13,17 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 def get_prompt(text: str) -> str:
     today_str = date.today().isoformat()
-    return f"""Сегодня {today_str}. Пользователь написал: "{text}"
+    return f"""Сегодня {today_str}. Пользователь пишет боту-планировщику: "{text}"
 
-Если это задача/дело/напоминание — верни JSON:
-{{"is_task": true, "title": "название", "emoji": "эмодзи", "deadline": "YYYY-MM-DD или null", "priority": "urgent/high/medium/low", "category": "work/personal/health/learning/other"}}
+Считай это задачей если там есть любое действие, встреча, дело, событие или напоминание.
+Если человек что-то пишет боту-планировщику — почти всегда это задача.
 
-Если НЕ задача — верни: {{"is_task": false}}
+Верни JSON:
+{{"is_task": true, "title": "короткое название действия", "emoji": "подходящий эмодзи", "deadline": "YYYY-MM-DD или null", "priority": "urgent/high/medium/low", "category": "work/personal/health/learning/other"}}
 
-Только JSON, без пояснений."""
+Если это явно НЕ задача (приветствие, вопрос боту, случайный текст) — верни: {{"is_task": false}}
+
+Только JSON без пояснений."""
 
 
 async def parse_with_gemini(text: str) -> dict | None:
@@ -72,7 +75,6 @@ async def parse_with_openrouter(text: str) -> dict | None:
 
 
 async def parse_task(text: str) -> dict | None:
-    """Пробует доступные AI провайдеры по приоритету."""
     if GEMINI_API_KEY:
         return await parse_with_gemini(text)
     if ANTHROPIC_API_KEY:
