@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 from datetime import date, timedelta
 from contextlib import asynccontextmanager
@@ -14,6 +15,7 @@ from telegram import Update
 from app.database import db
 from app.models import HabitCreate, HabitToggle, TaskCreate
 from app.bot import build_application
+from app.reminder import reminder_loop
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,8 +36,12 @@ async def lifespan(app: FastAPI):
         await bot_app.bot.set_webhook(url=webhook_path)
         logger.info(f"Webhook set to {webhook_path}")
 
+    # Запускаем планировщик напоминаний
+    reminder_task = asyncio.create_task(reminder_loop(bot_app))
+
     yield
 
+    reminder_task.cancel()
     await bot_app.stop()
     await bot_app.shutdown()
 

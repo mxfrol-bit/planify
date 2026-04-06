@@ -49,6 +49,9 @@ async def handle_free_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         else:
             title, emoji, deadline, time_str, priority, category = text, "📌", None, None, "medium", "personal"
         task = db.create_task(uid, title, emoji, deadline, priority, category)
+        # Сохраняем время для напоминания
+        if time_str and deadline:
+            db.set_reminder_time(task["id"], uid, time_str)
         dl = f"\n📅 {deadline}" if deadline else ""
         tm = f" в {time_str}" if time_str else ""
         pr = PRIORITY_MAP.get(priority, "")
