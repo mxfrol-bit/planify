@@ -43,16 +43,18 @@ async def handle_free_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             title = parsed.get("title", text)
             emoji = parsed.get("emoji", "📌")
             deadline = parsed.get("deadline")
+            time_str = parsed.get("time")
             priority = parsed.get("priority", "medium")
             category = parsed.get("category", "personal")
         else:
-            title, emoji, deadline, priority, category = text, "📌", None, "medium", "personal"
+            title, emoji, deadline, time_str, priority, category = text, "📌", None, None, "medium", "personal"
         task = db.create_task(uid, title, emoji, deadline, priority, category)
         dl = f"\n📅 {deadline}" if deadline else ""
+        tm = f" в {time_str}" if time_str else ""
         pr = PRIORITY_MAP.get(priority, "")
         kb = [[InlineKeyboardButton("✅ Окей", callback_data="ai_ok"),
                InlineKeyboardButton("🗑 Удалить", callback_data=f"task_del:{task['id']}")]]
-        await msg.edit_text(f"📌 Записал:\n\n*{emoji} {title}*{dl}\n{pr}",
+        await msg.edit_text(f"📌 Записал:\n\n*{emoji} {title}*{dl}{tm}\n{pr}",
                             parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
     else:
         emoji, title = "📌", text
