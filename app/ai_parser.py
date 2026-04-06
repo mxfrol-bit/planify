@@ -31,9 +31,10 @@ def get_prompt(text: str) -> str:
     return (
         f"Сегодня {today.isoformat()}. Даты: {dates_hint}.\n"
         f"Сообщение пользователя: {text}\n\n"
-        "Верни JSON (без markdown):\n"
-        'если это задача: {"is_task":true,"title":"название","emoji":"эмодзи","deadline":"YYYY-MM-DD или null","time":"HH:MM или null","priority":"urgent/high/medium/low","category":"work/personal/health/learning/other"}\n'
-        'если не задача: {"is_task":false}'
+        "В сообщении может быть ОДНА или НЕСКОЛЬКО задач. Раздели их и верни JSON массив.\n"
+        "Формат: [{\"is_task\":true,\"title\":\"название\",\"emoji\":\"эмодзи\",\"deadline\":\"YYYY-MM-DD или null\",\"time\":\"HH:MM или null\",\"priority\":\"urgent/high/medium/low\",\"category\":\"work/personal/health/learning/other\"}]\n"
+        "Если не задача вообще: [{\"is_task\":false}]\n"
+        "Только JSON массив, без markdown и пояснений."
     )
 
 
@@ -49,6 +50,8 @@ async def parse_with_clowd(text: str) -> dict | None:
                 json={"text": text, "today": date.today().isoformat()}
             )
         result = resp.json()
+        if isinstance(result, dict):
+            result = [result]
         logger.info(f"Clowd OK: {result}")
         return result
     except Exception as e:
@@ -68,6 +71,8 @@ async def parse_with_openrouter(text: str) -> dict | None:
         raw = resp.json()["choices"][0]["message"]["content"].strip()
         raw = raw.replace("```json", "").replace("```", "").strip()
         result = json.loads(raw)
+        if isinstance(result, dict):
+            result = [result]
         logger.info(f"OpenRouter OK: {result}")
         return result
     except Exception as e:
@@ -110,7 +115,7 @@ async def parse_with_anthropic(text: str) -> dict | None:
         return None
 
 
-async def parse_task(text: str) -> dict | None:
+async def parse_task(text: str) -> list | None:
     """Приоритет: Clowd → OpenRouter → Gemini → Anthropic"""
     if CLOWD_API_URL and CLOWD_API_KEY:
         result = await parse_with_clowd(text)

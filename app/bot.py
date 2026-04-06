@@ -37,29 +37,48 @@ async def handle_free_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if ai_available():
         msg = await update.message.reply_text("⏳ Записываю...")
-        parsed = await parse_task(text)
-        # Всегда сохраняем — если AI распознал, берём его данные, иначе сохраняем текст как есть
-        if parsed and parsed.get("is_task"):
-            title = parsed.get("title", text)
-            emoji = parsed.get("emoji", "📌")
-            deadline = parsed.get("deadline")
-            time_str = parsed.get("time")
-            priority = parsed.get("priority", "medium")
-            category = parsed.get("category", "personal")
+        parsed_list = await parse_task(text)
+
+        # Если AI не вернул ничего — сохраняем как есть
+        if not parsed_list:
+            parsed_list = [{"is_task": True, "title": text, "emoji": "📌", "deadline": None, "time": None, "priority": "medium", "category": "personal"}]
+
+        # Фильтруем только задачи
+        tasks_to_create = [p for p in parsed_list if p.get("is_task")]
+        if not tasks_to_create:
+            tasks_to_create = [{"is_task": True, "title": text, "emoji": "📌", "deadline": None, "time": None, "priority": "medium", "category": "personal"}]
+
+        created_tasks = []
+        for p in tasks_to_create:
+            title = p.get("title", text)
+            emoji = p.get("emoji") or "📌"
+            deadline = p.get("deadline")
+            time_str = p.get("time")
+            priority = p.get("priority", "medium")
+            category = p.get("category", "personal")
+            task = db.create_task(uid, title, emoji, deadline, priority, category)
+            if time_str and deadline:
+                db.set_reminder_time(task["id"], uid, time_str)
+            created_tasks.append({"task": task, "title": title, "emoji": emoji, "deadline": deadline, "time_str": time_str, "priority": priority})
+
+        if len(created_tasks) == 1:
+            t = created_tasks[0]
+            dl = f"\n📅 {t['deadline']}" if t['deadline'] else ""
+            tm = f" в {t['time_str']}" if t['time_str'] else ""
+            pr = PRIORITY_MAP.get(t['priority'], "")
+            kb = [[InlineKeyboardButton("✅ Окей", callback_data="ai_ok"),
+                   InlineKeyboardButton("🗑 Удалить", callback_data=f"task_del:{t['task']['id']}")]]
+            await msg.edit_text(f"📌 Записал:\n\n*{t['emoji']} {t['title']}*{dl}{tm}\n{pr}",
+                                parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
         else:
-            title, emoji, deadline, time_str, priority, category = text, "📌", None, None, "medium", "personal"
-        emoji = emoji or "📌"  # fallback если AI вернул None
-        task = db.create_task(uid, title, emoji, deadline, priority, category)
-        # Сохраняем время для напоминания
-        if time_str and deadline:
-            db.set_reminder_time(task["id"], uid, time_str)
-        dl = f"\n📅 {deadline}" if deadline else ""
-        tm = f" в {time_str}" if time_str else ""
-        pr = PRIORITY_MAP.get(priority, "")
-        kb = [[InlineKeyboardButton("✅ Окей", callback_data="ai_ok"),
-               InlineKeyboardButton("🗑 Удалить", callback_data=f"task_del:{task['id']}")]]
-        await msg.edit_text(f"📌 Записал:\n\n*{emoji} {title}*{dl}{tm}\n{pr}",
-                            parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+            # Несколько задач
+            lines = []
+            for t in created_tasks:
+                dl = f" · {t['deadline']}" if t['deadline'] else ""
+                tm = f" в {t['time_str']}" if t['time_str'] else ""
+                lines.append(f"{t['emoji']} *{t['title']}*{dl}{tm}")
+            text_out = "📌 Записал *{}* задачи:\n\n".format(len(created_tasks)) + "\n".join(lines)
+            await msg.edit_text(text_out, parse_mode="Markdown")
     else:
         emoji, title = "📌", text
         if len(text) > 1 and not text[0].isalnum():
