@@ -162,12 +162,18 @@ select option{background:var(--surface2);}
 @keyframes slideUp{from{transform:translateY(40px);opacity:0;}to{transform:translateY(0);opacity:1;}}
 .modal-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px;}
 .modal-title{font-size:17px;font-weight:700;margin-bottom:18px;}
+.day-btn{padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
+.day-btn.active{background:var(--accent);border-color:var(--accent);color:white;}
 
 /* FAB (mobile add button) */
 .fab{display:none;position:fixed;bottom:calc(var(--nav-h) + 16px);right:16px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#4f46e5,#7c6ff7);border:none;color:white;font-size:24px;cursor:pointer;box-shadow:0 4px 24px rgba(124,111,247,.5);z-index:99;align-items:center;justify-content:center;transition:transform .2s;}
 .fab:active{transform:scale(.93);}
 @media(max-width:768px){.fab{display:flex;}}
 
+/* Mobile tap-to-move */
+.kanban-card.selected{border-color:var(--accent);background:rgba(124,111,247,.15);box-shadow:0 0 0 2px var(--accent);}
+.kanban-col-body.tap-target{background:rgba(124,111,247,.08);border:2px dashed var(--accent);border-radius:8px;cursor:pointer;}
+.move-hint{position:fixed;bottom:calc(var(--nav-h) + 80px);left:50%;transform:translateX(-50%);background:var(--accent);color:white;padding:10px 20px;border-radius:12px;font-size:13px;font-weight:600;z-index:150;box-shadow:0 4px 20px rgba(124,111,247,.5);animation:slideUp .2s ease;}
 /* Toast */
 .toast{position:fixed;top:16px;left:50%;transform:translateX(-50%) translateY(-80px);background:var(--surface);border:1px solid var(--border);padding:10px 20px;border-radius:12px;font-size:13px;transition:transform .3s;z-index:300;box-shadow:0 8px 32px rgba(0,0,0,.4);white-space:nowrap;}
 .toast.show{transform:translateX(-50%) translateY(0);}
@@ -272,6 +278,35 @@ select option{background:var(--surface2);}
   </div>
 </main>
 
+<!-- Habit Settings Modal -->
+<div id="habit-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="habit-modal-title">⚙️ Настройки привычки</div>
+    <div style="background:var(--surface2);border-radius:12px;padding:14px;margin-bottom:16px;display:flex;gap:16px">
+      <div style="text-align:center;flex:1"><div style="font-size:24px;font-weight:800;color:var(--orange)" id="hm-streak">0</div><div style="font-size:11px;color:var(--muted)">🔥 Стрик</div></div>
+      <div style="text-align:center;flex:1"><div style="font-size:24px;font-weight:800;color:var(--yellow)" id="hm-best">0</div><div style="font-size:11px;color:var(--muted)">🏆 Рекорд</div></div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">⏰ Время напоминания</label>
+      <input id="hm-time" type="time" placeholder="08:00">
+    </div>
+    <div class="form-group" style="margin-bottom:16px">
+      <label class="form-label">📅 Дни недели</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap" id="hm-days">
+        <button class="day-btn active" data-day="0" onclick="toggleDay(this)">Пн</button>
+        <button class="day-btn active" data-day="1" onclick="toggleDay(this)">Вт</button>
+        <button class="day-btn active" data-day="2" onclick="toggleDay(this)">Ср</button>
+        <button class="day-btn active" data-day="3" onclick="toggleDay(this)">Чт</button>
+        <button class="day-btn active" data-day="4" onclick="toggleDay(this)">Пт</button>
+        <button class="day-btn" data-day="5" onclick="toggleDay(this)">Сб</button>
+        <button class="day-btn" data-day="6" onclick="toggleDay(this)">Вс</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="saveHabitSettings()" style="flex:1">💾 Сохранить</button><button class="btn btn-ghost" onclick="closeHabitModal()">✕</button></div>
+  </div>
+</div>
+
 <!-- Edit Modal -->
 <div id="edit-modal" class="modal-overlay">
   <div class="modal">
@@ -298,7 +333,7 @@ let TOKEN=params.get('token')||localStorage.getItem('planify_token');
 if(TOKEN)localStorage.setItem('planify_token',TOKEN);
 const today=new Date().toISOString().slice(0,10);
 let habitsTab='today',tasksView='kanban',tasksTab='pending';
-let allTasks=[],editingTaskId=null,draggedTaskId=null,kanbanWeekOffset=0;
+let allTasks=[],editingTaskId=null,draggedTaskId=null,kanbanWeekOffset=0,selectedTaskId=null;
 const isMobile=()=>window.innerWidth<=768;
 
 function toast(msg,ok=true){
@@ -365,7 +400,19 @@ async function quickDone(id,el){await api(`/api/tasks/${id}/toggle`,{method:'POS
 // ── Habits ─────────────────────────────────────────────────────────────────
 async function loadHabits(){
   const habits=await api(habitsTab==='today'?`/api/habits?date_str=${today}`:'/api/habits');
-  document.getElementById('habits-list').innerHTML=habits.length?habits.map(h=>`<div class="habit-item ${h.done_today?'done':''}" id="habit-${h.id}"><div class="habit-check" onclick="toggleHabit('${h.id}',this.closest('.habit-item'))">${h.done_today?'✓':''}</div><div class="habit-name" onclick="toggleHabit('${h.id}',this.closest('.habit-item'))">${h.emoji||'✅'} ${h.name}</div><div class="habit-delete" onclick="deleteHabit('${h.id}')">🗑</div></div>`).join(''):'<div class="empty"><div class="empty-icon">🎯</div>Добавьте привычку!</div>';
+  window._habits = habits;
+  document.getElementById('habits-list').innerHTML=habits.length?habits.map(h=>{
+    const streak=h.current_streak||0;
+    const best=h.best_streak||0;
+    const streakBadge=streak>1?`<span style="font-size:11px;color:var(--orange);font-weight:700">🔥${streak}</span>`:'';
+    const remBadge=h.reminder_time?`<span class="time-tag" style="font-size:10px">⏰${h.reminder_time}</span>`:'';
+    return`<div class="habit-item ${h.done_today?'done':''}" id="habit-${h.id}">
+      <div class="habit-check" onclick="toggleHabit('${h.id}',this.closest('.habit-item'))">${h.done_today?'✓':''}</div>
+      <div class="habit-name" onclick="toggleHabit('${h.id}',this.closest('.habit-item'))">${h.emoji||'✅'} ${h.name}</div>
+      <div style="display:flex;gap:4px;align-items:center">${streakBadge}${remBadge}</div>
+      <button class="btn-icon" onclick="openHabitSettings('${h.id}','${(h.name||'').replace(/'/g,"\'")}','${h.reminder_time||''}','${h.reminder_days||'all'}',${best})" style="font-size:13px">⚙️</button>
+      <div class="habit-delete" onclick="deleteHabit('${h.id}')">🗑</div>
+    </div>`;}).join(''):'<div class="empty"><div class="empty-icon">🎯</div>Добавьте привычку!</div>';
 }
 async function toggleHabit(id,el){const res=await api(`/api/habits/${id}/toggle`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:today})});el.classList.toggle('done',res.done);el.querySelector('.habit-check').textContent=res.done?'✓':'';}
 async function addHabit(){const name=document.getElementById('h-name').value.trim();if(!name)return toast('Введите название',false);await api('/api/habits',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,emoji:document.getElementById('h-emoji').value||'✅',frequency:'daily'})});document.getElementById('h-name').value='';toggleAddHabit();toast('Привычка добавлена!');loadHabits();}
@@ -419,19 +466,19 @@ function renderKanban(){
     const dt=tbd[iso]||[];
     html+=`<div class="kanban-col ${isToday?'is-today':''} ${isOver?'is-overdue':''}">
       <div class="kanban-col-header"><span>${isToday?'⚡ ':''}${RD[day.getDay()]}</span><span class="date-label">${day.getDate()} ${RM[day.getMonth()]}</span></div>
-      <div class="kanban-col-body" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropTask(event,'${iso}')">
+      <div class="kanban-col-body" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropTask(event,'${iso}')" onclick="tapColumn(event,'${iso}')">
         ${dt.map(t=>kcard(t)).join('')}
         <button class="kanban-add-btn" onclick="quickAdd('${iso}')">+ Добавить</button>
       </div></div>`;
   });
-  html+=`<div class="kanban-col"><div class="kanban-col-header"><span>📦 Без даты</span><span class="date-label">${nd.length}</span></div><div class="kanban-col-body" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropTask(event,null)">${nd.map(t=>kcard(t)).join('')}</div></div>`;
+  html+=`<div class="kanban-col"><div class="kanban-col-header"><span>📦 Без даты</span><span class="date-label">${nd.length}</span></div><div class="kanban-col-body" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropTask(event,null)" onclick="tapColumn(event,null)">${nd.map(t=>kcard(t)).join('')}</div></div>`;
   html+='</div></div>';
   document.getElementById('kanban-view').innerHTML=html;
 }
 
 function kcard(t){
   const st=(t.title||'').replace(/'/g,"\\'");
-  return`<div class="kanban-card" id="kcard-${t.id}" draggable="true" ondragstart="dragStart(event,'${t.id}')" ondragend="dragEnd()">
+  return`<div class="kanban-card" id="kcard-${t.id}" draggable="true" ondragstart="dragStart(event,'${t.id}')" ondragend="dragEnd()" onclick="tapCard(event,'${t.id}')">
     <div class="kanban-card-title">${t.emoji||'📌'} ${t.title}</div>
     <div class="kanban-card-meta">${PL[t.priority]||''} ${t.reminder_time?`<span class="time-tag" style="font-size:10px">⏰ ${t.reminder_time}</span>`:''}</div>
     <div class="kanban-card-actions">
@@ -442,13 +489,80 @@ function kcard(t){
   </div>`;
 }
 
-function dragStart(e,id){draggedTaskId=id;setTimeout(()=>{const el=document.getElementById('kcard-'+id);if(el)el.classList.add('dragging');},0);}
-function dragEnd(){document.querySelectorAll('.kanban-col-body').forEach(b=>b.classList.remove('drag-over'));if(draggedTaskId){const el=document.getElementById('kcard-'+draggedTaskId);if(el)el.classList.remove('dragging');}draggedTaskId=null;}
+// ── Mobile tap-to-move ────────────────────────────────────────────────────
+function tapCard(e,id){
+  if(!isMobile())return; // desktop uses drag
+  e.stopPropagation();
+  if(selectedTaskId===id){
+    // Deselect
+    clearSelection();
+    return;
+  }
+  clearSelection();
+  selectedTaskId=id;
+  const el=document.getElementById('kcard-'+id);
+  if(el)el.classList.add('selected');
+  // Highlight all columns as tap targets
+  document.querySelectorAll('.kanban-col-body').forEach(b=>b.classList.add('tap-target'));
+  // Show hint
+  showMoveHint();
+}
+
+function showMoveHint(){
+  removeMoveHint();
+  const hint=document.createElement('div');
+  hint.className='move-hint';
+  hint.id='move-hint';
+  hint.textContent='👆 Нажмите на колонку чтобы перенести';
+  document.body.appendChild(hint);
+}
+
+function removeMoveHint(){
+  const h=document.getElementById('move-hint');
+  if(h)h.remove();
+}
+
+function clearSelection(){
+  selectedTaskId=null;
+  document.querySelectorAll('.kanban-card.selected').forEach(c=>c.classList.remove('selected'));
+  document.querySelectorAll('.kanban-col-body.tap-target').forEach(b=>b.classList.remove('tap-target'));
+  removeMoveHint();
+}
+
+async function tapColumn(e,newDate){
+  if(!isMobile()||!selectedTaskId)return;
+  e.stopPropagation();
+  const id=selectedTaskId;
+  clearSelection();
+  await api(`/api/tasks/${id}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deadline:newDate})});
+  const t=allTasks.find(x=>x.id===id);if(t)t.deadline=newDate;
+  renderKanban();toast('Перенесено!');
+}
+
+// Close selection on tap outside
+document.addEventListener('click',function(e){
+  if(selectedTaskId&&!e.target.closest('.kanban-card')&&!e.target.closest('.kanban-col-body')){clearSelection();}
+});
+
+function dragStart(e,id){
+  draggedTaskId=id;
+  e.dataTransfer.effectAllowed='move';
+  e.dataTransfer.setData('text/plain',id);
+  setTimeout(()=>{const el=document.getElementById('kcard-'+id);if(el)el.classList.add('dragging');},0);
+}
+function dragEnd(){
+  document.querySelectorAll('.kanban-col-body').forEach(b=>b.classList.remove('drag-over'));
+  document.querySelectorAll('.kanban-card').forEach(c=>c.classList.remove('dragging'));
+  // НЕ сбрасываем draggedTaskId здесь — drop ещё не сработал
+}
 
 async function dropTask(e,newDate){
-  e.preventDefault();e.currentTarget.classList.remove('drag-over');
-  if(!draggedTaskId)return;
-  const id=draggedTaskId;draggedTaskId=null;
+  e.preventDefault();
+  e.stopPropagation();
+  e.currentTarget.classList.remove('drag-over');
+  const id=e.dataTransfer.getData('text/plain')||draggedTaskId;
+  draggedTaskId=null;
+  if(!id)return;
   await api(`/api/tasks/${id}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deadline:newDate})});
   const t=allTasks.find(x=>x.id===id);if(t)t.deadline=newDate;
   renderKanban();toast('Перенесено!');
@@ -502,6 +616,53 @@ async function saveEditTask(){
 document.getElementById('edit-modal').addEventListener('click',function(e){if(e.target===this)closeEditModal();});
 
 // ── Init ───────────────────────────────────────────────────────────────────
+// ── Habit Settings ────────────────────────────────────────────────────────
+let editingHabitId = null;
+
+function openHabitSettings(id, name, remTime, remDays, best) {
+  editingHabitId = id;
+  document.getElementById('habit-modal-title').textContent = `⚙️ ${name}`;
+  document.getElementById('hm-time').value = remTime || '';
+  // Find streak from allHabits
+  const h = (window._habits||[]).find(x=>x.id===id);
+  document.getElementById('hm-streak').textContent = (h&&h.current_streak)||0;
+  document.getElementById('hm-best').textContent = best||0;
+  // Set days
+  const days = remDays==='all' ? [0,1,2,3,4,5,6] : (remDays||'').split(',').map(Number);
+  document.querySelectorAll('.day-btn').forEach(btn => {
+    btn.classList.toggle('active', days.includes(parseInt(btn.dataset.day)));
+  });
+  document.getElementById('habit-modal').classList.add('open');
+}
+
+function toggleDay(btn) {
+  btn.classList.toggle('active');
+}
+
+function closeHabitModal() {
+  document.getElementById('habit-modal').classList.remove('open');
+  editingHabitId = null;
+}
+
+async function saveHabitSettings() {
+  if (!editingHabitId) return;
+  const time = document.getElementById('hm-time').value || null;
+  const activeDays = [...document.querySelectorAll('.day-btn.active')].map(b=>b.dataset.day).join(',');
+  const days = activeDays === '0,1,2,3,4,5,6' ? 'all' : activeDays;
+  await api(`/api/habits/${editingHabitId}/settings`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({reminder_time: time, reminder_days: days}),
+  });
+  closeHabitModal();
+  toast('Настройки сохранены!');
+  loadHabits();
+}
+
+document.getElementById('habit-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeHabitModal();
+});
+
 if(!TOKEN){
   document.querySelector('.main').innerHTML=`<div style="display:flex;align-items:center;justify-content:center;min-height:80vh;flex-direction:column;gap:20px;text-align:center"><div style="font-size:56px">🔐</div><div style="font-size:22px;font-weight:700">Нужна авторизация</div><div style="color:var(--muted);max-width:260px;font-size:15px">Откройте Telegram бота и введите команду <strong>/web</strong></div></div>`;
   document.querySelector('.bottom-nav').style.display='none';

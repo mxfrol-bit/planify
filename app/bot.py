@@ -122,9 +122,18 @@ async def habits_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     done = sum(1 for h in habits if h["id"] in done_ids)
     pct = round(done / len(habits) * 100)
-    buttons = [[InlineKeyboardButton(
-        f"{'✅' if h['id'] in done_ids else '⬜'} {h['emoji']} {h['name']}",
-        callback_data=f"toggle_habit:{h['id']}:{today}")] for h in habits]
+    buttons = []
+    for h in habits:
+        is_done = h["id"] in done_ids
+        streak = h.get("current_streak", 0)
+        streak_text = f" 🔥{streak}" if streak > 1 else ""
+        buttons.append([
+            InlineKeyboardButton(
+                f"{'✅' if is_done else '⬜'} {h['emoji']} {h['name']}{streak_text}",
+                callback_data=f"toggle_habit:{h['id']}:{today}"
+            ),
+            InlineKeyboardButton("⚙️", callback_data=f"habit_settings:{h['id']}"),
+        ])
     buttons.append([InlineKeyboardButton("➕ Добавить привычку", callback_data="cmd:addhabit")])
     await update.message.reply_text(f"📅 *Привычки на сегодня* — {pct}%\n", parse_mode="Markdown",
                                     reply_markup=InlineKeyboardMarkup(buttons))
@@ -134,7 +143,11 @@ async def toggle_habit_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     _, habit_id, date_str = query.data.split(":", 2)
     uid = update.effective_user.id
-    db.toggle_habit(habit_id, uid, date_str)
+    is_done = db.toggle_habit(habit_id, uid, date_str)
+    # Обновляем стрик если отметили
+    if is_done:
+        streak, best = db.calculate_streak(habit_id, uid)
+        db.update_streak(habit_id, uid, streak, best, date_str)
     habits = db.get_habits(uid)
     logs = db.get_today_logs(uid, date_str)
     done_ids = {l["habit_id"] for l in logs}
@@ -323,6 +336,45 @@ async def reminder_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🗑 Задача удалена.")
 
 
+async def habit_settings_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Настройки конкретной привычки"""
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split(":")
+    action = parts[0]
+    habit_id = parts[1] if len(parts) > 1 else None
+    uid = update.effective_user.id
+
+    if action == "habit_snooze":
+        await query.edit_message_text("⏰ Напомню через 30 минут!")
+    elif action == "habit_settings":
+        habits = db.get_habits(uid)
+        habit = next((h for h in habits if h["id"] == habit_id), None)
+        if not habit:
+            return
+        streak = habit.get("current_streak", 0)
+        best = habit.get("best_streak", 0)
+        rem_time = habit.get("reminder_time", "не задано")
+        kb = [
+            [InlineKeyboardButton("⏰ Время напоминания", callback_data=f"habit_set_time:{habit_id}")],
+            [InlineKeyboardButton("📅 Дни недели", callback_data=f"habit_set_days:{habit_id}")],
+            [InlineKeyboardButton("← Назад", callback_data="cmd:habits")],
+        ]
+        await query.edit_message_text(
+            f"⚙️ *{habit['emoji']} {habit['name']}*
+
+"
+            f"🔥 Стрик: *{streak} дней*
+"
+            f"🏆 Рекорд: *{best} дней*
+"
+            f"⏰ Напоминание: *{rem_time}*
+",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
+
+
 async def cmd_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -359,6 +411,7 @@ def build_application() -> Application:
     app.add_handler(task_conv)
     app.add_handler(CallbackQueryHandler(toggle_habit_callback, pattern="^toggle_habit:"))
     app.add_handler(CallbackQueryHandler(task_action_callback, pattern="^(task_done|task_view|task_del|ai_ok)"))
+    app.add_handler(CallbackQueryHandler(habit_settings_callback, pattern="^habit_(snooze|settings|set_time|set_days):"))
     app.add_handler(CallbackQueryHandler(reminder_callback, pattern="^rem_"))
     app.add_handler(CallbackQueryHandler(cmd_callback, pattern="^cmd:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))

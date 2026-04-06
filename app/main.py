@@ -127,6 +127,21 @@ def toggle_habit(habit_id: str, body: HabitToggle, token: str):
     return {"done": done}
 
 
+@app.post("/api/habits/{habit_id}/settings")
+def update_habit_settings(habit_id: str, token: str, body: dict):
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    data = {}
+    if "reminder_time" in body:
+        data["reminder_time"] = body["reminder_time"]
+    if "reminder_days" in body:
+        data["reminder_days"] = body["reminder_days"]
+    if data:
+        db.update_habit(habit_id, user["id"], data)
+    return {"ok": True}
+
+
 @app.delete("/api/habits/{habit_id}")
 def delete_habit(habit_id: str, token: str):
     user = db.get_user_by_token(token)

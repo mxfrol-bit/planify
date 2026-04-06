@@ -166,4 +166,51 @@ class Database:
         return bool(res.data)
 
 
+    # ── Habit extras ───────────────────────────────────────────────────────
+
+    def update_habit(self, habit_id: str, user_id: int, data: dict) -> bool:
+        res = supabase.table("habits").update(data)            .eq("id", habit_id).eq("user_id", user_id).execute()
+        return bool(res.data)
+
+    def get_habits_with_reminders(self) -> list:
+        return supabase.table("habits").select("*")            .eq("is_active", True)            .not_.is_("reminder_time", "null")            .execute().data or []
+
+    def calculate_streak(self, habit_id: str, user_id: int) -> tuple:
+        from datetime import date, timedelta
+        logs = supabase.table("habit_logs").select("logged_date")            .eq("habit_id", habit_id)            .order("logged_date", desc=True)            .limit(365).execute().data or []
+        if not logs:
+            return 0, 0
+        dates = sorted([l["logged_date"] for l in logs], reverse=True)
+        today = date.today()
+        current = 0
+        check = today
+        for d in dates:
+            if d == check.isoformat() or d == (check - timedelta(1)).isoformat():
+                current += 1
+                check = date.fromisoformat(d)
+            else:
+                break
+        best = 1
+        run = 1
+        for i in range(1, len(dates)):
+            d1 = date.fromisoformat(dates[i-1])
+            d2 = date.fromisoformat(dates[i])
+            if (d1 - d2).days == 1:
+                run += 1
+                best = max(best, run)
+            else:
+                run = 1
+        return current, max(best, current)
+
+    def supabase_get_all_users(self) -> list:
+        return supabase.table("users").select("id,first_name").execute().data or []
+
+    def update_streak(self, habit_id: str, user_id: int, streak: int, best: int, last_date: str):
+        supabase.table("habits").update({
+            "current_streak": streak,
+            "best_streak": best,
+            "last_done_date": last_date,
+        }).eq("id", habit_id).eq("user_id", user_id).execute()
+
+
 db = Database()
