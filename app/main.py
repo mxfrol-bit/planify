@@ -175,6 +175,20 @@ def toggle_task(task_id: str, token: str):
     return {"completed": done}
 
 
+@app.post("/api/tasks/{task_id}/update")
+def update_task(task_id: str, token: str, body: dict):
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    from app.models import TaskUpdate
+    supabase_data = {k: v for k, v in body.items() if v is not None}
+    from app.database import supabase
+    supabase.table("tasks").update(supabase_data).eq("id", task_id).eq("user_id", user["id"]).execute()
+    if body.get("reminder_time") and body.get("deadline"):
+        db.set_reminder_time(task_id, user["id"], body["reminder_time"])
+    return {"ok": True}
+
+
 @app.delete("/api/tasks/{task_id}")
 def delete_task(task_id: str, token: str):
     user = db.get_user_by_token(token)

@@ -4,26 +4,54 @@ from datetime import datetime, date, timedelta
 import pytz
 
 logger = logging.getLogger(__name__)
-
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
 
+async def send_reminder(bot_app, task: dict):
+    from app.database import db
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    emoji = task.get("emoji") or "📌"
+    title = task.get("title", "")
+    time_str = task.get("reminder_time", "")
+
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Понял, еду!", callback_data=f"rem_ok:{task['id']}"),
+            InlineKeyboardButton("⏰ +30 мин", callback_data=f"rem_snooze30:{task['id']}"),
+        ],
+        [
+            InlineKeyboardButton("🔕 Отложить на час", callback_data=f"rem_snooze60:{task['id']}"),
+            InlineKeyboardButton("🗑 Отменить задачу", callback_data=f"rem_cancel:{task['id']}"),
+        ],
+    ])
+
+    await bot_app.bot.send_message(
+        chat_id=task["user_id"],
+        text=(
+            f"⏰ *Напоминание!*\n\n"
+            f"{emoji} *{title}*\n"
+            f"📅 Сегодня в *{time_str}*\n\n"
+            f"_Через час_"
+        ),
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+    db.mark_reminded(task["id"])
+    logger.info(f"Reminder sent: {title} at {time_str}")
+
+
 async def check_reminders(bot_app):
-    """Проверяет задачи и отправляет напоминания за час до времени."""
     from app.database import db
 
     now = datetime.now(MOSCOW_TZ)
     today = now.date().isoformat()
 
     try:
-        # Берём все невыполненные задачи с временем на сегодня
         tasks = db.get_tasks_for_reminder(today)
-
         for task in tasks:
-            if not task.get("reminder_time") or task.get("reminded"):
+            if not task.get("reminder_time"):
                 continue
-
-            # Парсим время задачи
             try:
                 task_time = datetime.strptime(
                     f"{task['deadline']} {task['reminder_time']}", "%Y-%m-%d %H:%M"
@@ -31,34 +59,18 @@ async def check_reminders(bot_app):
             except Exception:
                 continue
 
-            # Проверяем — до задачи от 55 до 65 минут
             diff = (task_time - now).total_seconds() / 60
-            logger.info(f"Task '{task['title']}': time={task['reminder_time']}, diff={diff:.1f} min, now={now.strftime('%H:%M')}")
+            logger.info(f"Task '{task['title']}': diff={diff:.1f} min, now={now.strftime('%H:%M')}")
+
             if 55 <= diff <= 65:
-                try:
-                    await bot_app.bot.send_message(
-                        chat_id=task["user_id"],
-                        text=(
-                            f"⏰ *Напоминание!*\n\n"
-                            f"{task['emoji']} *{task['title']}*\n"
-                            f"📅 Сегодня в {task['reminder_time']}\n\n"
-                            f"_Через час_"
-                        ),
-                        parse_mode="Markdown"
-                    )
-                    # Помечаем как напомненное
-                    db.mark_reminded(task["id"])
-                    logger.info(f"Reminder sent for task {task['id']} to user {task['user_id']}")
-                except Exception as e:
-                    logger.error(f"Failed to send reminder: {e}")
+                await send_reminder(bot_app, task)
 
     except Exception as e:
         logger.error(f"Reminder check error: {e}")
 
 
 async def reminder_loop(bot_app):
-    """Запускает проверку каждые 5 минут."""
     logger.info("Reminder loop started")
     while True:
         await check_reminders(bot_app)
-        await asyncio.sleep(300)  # каждые 5 минут
+        await asyncio.sleep(300)

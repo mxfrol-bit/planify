@@ -48,6 +48,7 @@ async def handle_free_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             category = parsed.get("category", "personal")
         else:
             title, emoji, deadline, time_str, priority, category = text, "📌", None, None, "medium", "personal"
+        emoji = emoji or "📌"  # fallback если AI вернул None
         task = db.create_task(uid, title, emoji, deadline, priority, category)
         # Сохраняем время для напоминания
         if time_str and deadline:
@@ -273,6 +274,36 @@ async def progress(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 # ── Callbacks ─────────────────────────────────────────────────────────────
 
+async def reminder_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = update.effective_user.id
+    parts = query.data.split(":")
+    action, task_id = parts[0], parts[1]
+
+    if action == "rem_ok":
+        await query.edit_message_text("✅ Отлично! Удачи на встрече!")
+    elif action == "rem_snooze30":
+        from datetime import datetime, timedelta
+        import pytz
+        tz = pytz.timezone("Europe/Moscow")
+        new_time = (datetime.now(tz) + timedelta(minutes=90)).strftime("%H:%M")
+        db.set_reminder_time(task_id, uid, new_time)
+        db.unmark_reminded(task_id)
+        await query.edit_message_text(f"⏰ Напомню в {new_time}")
+    elif action == "rem_snooze60":
+        from datetime import datetime, timedelta
+        import pytz
+        tz = pytz.timezone("Europe/Moscow")
+        new_time = (datetime.now(tz) + timedelta(minutes=120)).strftime("%H:%M")
+        db.set_reminder_time(task_id, uid, new_time)
+        db.unmark_reminded(task_id)
+        await query.edit_message_text(f"⏰ Напомню в {new_time}")
+    elif action == "rem_cancel":
+        db.delete_task(task_id, uid)
+        await query.edit_message_text("🗑 Задача удалена.")
+
+
 async def cmd_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -309,6 +340,7 @@ def build_application() -> Application:
     app.add_handler(task_conv)
     app.add_handler(CallbackQueryHandler(toggle_habit_callback, pattern="^toggle_habit:"))
     app.add_handler(CallbackQueryHandler(task_action_callback, pattern="^(task_done|task_view|task_del|ai_ok)"))
+    app.add_handler(CallbackQueryHandler(reminder_callback, pattern="^rem_"))
     app.add_handler(CallbackQueryHandler(cmd_callback, pattern="^cmd:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))
 

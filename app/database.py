@@ -158,6 +158,9 @@ class Database:
     def mark_reminded(self, task_id: str) -> None:
         supabase.table("tasks").update({"reminded": True})            .eq("id", task_id).execute()
 
+    def unmark_reminded(self, task_id: str) -> None:
+        supabase.table("tasks").update({"reminded": False})            .eq("id", task_id).execute()
+
     def set_reminder_time(self, task_id: str, user_id: int, time_str: str) -> bool:
         res = supabase.table("tasks").update({"reminder_time": time_str})            .eq("id", task_id).eq("user_id", user_id).execute()
         return bool(res.data)
