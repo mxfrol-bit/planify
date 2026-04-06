@@ -101,6 +101,29 @@
   .toast.show{opacity:1;transform:translateY(0);}
   @media(max-width:768px){.sidebar{width:60px;padding:16px 8px;}.logo,.nav-label{display:none;}.nav-item{justify-content:center;padding:10px;}.main{margin-left:60px;padding:16px;}.stats-grid{grid-template-columns:repeat(2,1fr);}}
   @media(max-width:900px){.grid2{grid-template-columns:1fr;}}
+
+  /* Kanban */
+  .kanban-scroll{overflow-x:auto;padding-bottom:16px;}
+  .kanban-board{display:flex;gap:12px;min-width:max-content;}
+  .kanban-col{width:220px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+  .kanban-col-header{padding:12px 14px;font-size:13px;font-weight:700;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+  .kanban-col-header .date-label{font-size:11px;color:var(--muted);font-weight:400;}
+  .kanban-col.is-today .kanban-col-header{background:linear-gradient(135deg,rgba(79,70,229,.2),rgba(124,111,247,.1));border-bottom-color:var(--accent);}
+  .kanban-col.is-overdue .kanban-col-header{background:rgba(248,113,113,.08);}
+  .kanban-col-body{padding:8px;min-height:120px;transition:background .2s;}
+  .kanban-col-body.drag-over{background:rgba(124,111,247,.08);border-radius:8px;}
+  .kanban-card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:6px;cursor:grab;transition:all .15s;position:relative;}
+  .kanban-card:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,.3);}
+  .kanban-card.dragging{opacity:.4;transform:rotate(2deg);}
+  .kanban-card-title{font-size:13px;font-weight:500;margin-bottom:6px;line-height:1.3;}
+  .kanban-card-meta{display:flex;gap:4px;flex-wrap:wrap;align-items:center;}
+  .kanban-card-actions{display:flex;gap:2px;position:absolute;top:6px;right:6px;opacity:0;transition:opacity .15s;}
+  .kanban-card:hover .kanban-card-actions{opacity:1;}
+  .kanban-mini-badge{padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;}
+  .kanban-add-btn{width:100%;padding:8px;background:transparent;border:1px dashed var(--border);border-radius:8px;color:var(--muted);font-size:12px;cursor:pointer;transition:all .15s;margin-top:4px;}
+  .kanban-add-btn:hover{border-color:var(--accent);color:var(--accent2);}
+  .kanban-week-nav{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
+  .no-deadline-col{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;width:220px;flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -145,7 +168,16 @@
     </div>
     <!-- TASKS -->
     <div id="page-tasks" class="page">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px"><div class="section-title" style="margin-bottom:0">Мои задачи</div><button class="btn btn-primary" onclick="toggleAddTask()">➕ Добавить</button></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <div class="section-title" style="margin-bottom:0">Мои задачи</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="tabs" style="margin-bottom:0">
+            <div class="tab active" onclick="setTasksView('kanban',this)">📅 Канбан</div>
+            <div class="tab" onclick="setTasksView('list',this)">📋 Список</div>
+          </div>
+          <button class="btn btn-primary" onclick="toggleAddTask()">➕ Добавить</button>
+        </div>
+      </div>
       <div id="task-form" class="add-form" style="display:none">
         <div class="form-row">
           <div class="form-group" style="flex:.25"><label class="form-label">Эмодзи</label><input id="t-emoji" value="📌" maxlength="2" style="text-align:center;font-size:20px"></div>
@@ -159,8 +191,8 @@
         </div>
         <div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="addTask()">Добавить</button><button class="btn btn-ghost" onclick="toggleAddTask()">Отмена</button></div>
       </div>
-      <div class="tabs"><div class="tab active" onclick="setTasksTab('pending',this)">В работе</div><div class="tab" onclick="setTasksTab('done',this)">Выполнено</div></div>
-      <div id="tasks-list"><div class="loader">Загрузка...</div></div>
+      <div id="kanban-view"></div>
+      <div id="tasks-list" style="display:none"><div class="loader">Загрузка...</div></div>
     </div>
     <!-- SETTINGS -->
     <div id="page-settings" class="page">
@@ -271,11 +303,183 @@ async function addTask(){
   const res=await api('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,emoji:document.getElementById('t-emoji').value.trim()||'📌',deadline,priority:document.getElementById('t-priority').value,category:document.getElementById('t-category').value})});
   if(time&&res.id)await api(`/api/tasks/${res.id}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reminder_time:time,deadline})});
   document.getElementById('t-title').value='';document.getElementById('t-time').value='';document.getElementById('t-deadline').value='';
-  toggleAddTask();toast('Задача добавлена!');loadTasks();
+  toggleAddTask();toast('Задача добавлена!');
+  await loadTasks();
 }
-async function deleteTask(id){if(!confirm('Удалить задачу?'))return;await api(`/api/tasks/${id}`,{method:'DELETE'});toast('Удалено');loadTasks();}
+async function deleteTask(id){if(!confirm('Удалить задачу?'))return;await api(`/api/tasks/${id}`,{method:'DELETE'});allTasks=allTasks.filter(t=>t.id!==id);toast('Удалено');if(tasksView==='kanban')renderKanban();else loadTasksList();}
 function toggleAddTask(){const f=document.getElementById('task-form');f.style.display=f.style.display==='none'?'block':'none';if(f.style.display==='block')document.getElementById('t-title').focus();}
-function setTasksTab(tab,el){tasksTab=tab;document.querySelectorAll('#page-tasks .tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');loadTasks();}
+// ── Kanban ─────────────────────────────────────────────────────────────────
+let tasksView = 'kanban';
+let kanbanWeekOffset = 0;
+let allTasks = [];
+let draggedTaskId = null;
+
+function setTasksView(view, el) {
+  tasksView = view;
+  document.querySelectorAll('#page-tasks .tabs .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('kanban-view').style.display = view === 'kanban' ? 'block' : 'none';
+  document.getElementById('tasks-list').style.display = view === 'list' ? 'block' : 'none';
+  if (view === 'kanban') renderKanban();
+  else loadTasksList();
+}
+
+function setTasksTab(tab, el) {
+  tasksTab = tab;
+  document.querySelectorAll('#page-tasks .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  loadTasks();
+}
+
+function getKanbanDays() {
+  const days = [];
+  const base = new Date();
+  base.setDate(base.getDate() + kanbanWeekOffset * 7);
+  const mon = new Date(base);
+  mon.setDate(mon.getDate() - mon.getDay() + 1);
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(mon);
+    d.setDate(d.getDate() + i);
+    days.push(d);
+  }
+  return days;
+}
+
+const RU_DAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+const RU_MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+const PRIORITY_COLOR = {urgent:'var(--red)',high:'var(--orange)',medium:'var(--yellow)',low:'var(--green)'};
+const PRIORITY_LABEL = {urgent:'🔴',high:'🟠',medium:'🟡',low:'🟢'};
+
+function dateToISO(d) { return d.toISOString().slice(0, 10); }
+
+function renderKanban() {
+  const days = getKanbanDays();
+  const todayISO = today;
+  const tasksByDay = {};
+  const noDeadline = [];
+
+  allTasks.filter(t => !t.completed).forEach(t => {
+    if (!t.deadline) { noDeadline.push(t); return; }
+    if (!tasksByDay[t.deadline]) tasksByDay[t.deadline] = [];
+    tasksByDay[t.deadline].push(t);
+  });
+
+  const weekStart = dateToISO(days[0]);
+  const weekEnd = dateToISO(days[6]);
+  const weekLabel = `${days[0].getDate()} ${RU_MONTHS[days[0].getMonth()]} — ${days[6].getDate()} ${RU_MONTHS[days[6].getMonth()]}`;
+
+  let html = `
+    <div class="kanban-week-nav">
+      <button class="btn btn-ghost btn-sm" onclick="kanbanWeekOffset--;renderKanban()">← Пред. неделя</button>
+      <div style="font-weight:600;font-size:14px">${weekLabel}</div>
+      <button class="btn btn-ghost btn-sm" onclick="kanbanWeekOffset++;renderKanban()">След. неделя →</button>
+      ${kanbanWeekOffset !== 0 ? '<button class="btn btn-ghost btn-sm" onclick="kanbanWeekOffset=0;renderKanban()">Сегодня</button>' : ''}
+    </div>
+    <div class="kanban-scroll"><div class="kanban-board">`;
+
+  days.forEach(day => {
+    const iso = dateToISO(day);
+    const isToday = iso === todayISO;
+    const isOverdue = iso < todayISO;
+    const dayTasks = tasksByDay[iso] || [];
+    const dayName = RU_DAYS[day.getDay()];
+    const dayNum = `${day.getDate()} ${RU_MONTHS[day.getMonth()]}`;
+
+    html += `<div class="kanban-col ${isToday?'is-today':''} ${isOverdue?'is-overdue':''}" data-date="${iso}">
+      <div class="kanban-col-header">
+        <span>${isToday ? '⚡ ' : ''}${dayName}</span>
+        <span class="date-label">${dayNum}</span>
+      </div>
+      <div class="kanban-col-body" 
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="dropTask(event,'${iso}')">
+        ${dayTasks.map(t => kanbanCard(t)).join('')}
+        <button class="kanban-add-btn" onclick="quickAddTask('${iso}')">+ Добавить</button>
+      </div>
+    </div>`;
+  });
+
+  // No deadline column
+  html += `<div class="no-deadline-col">
+    <div class="kanban-col-header"><span>📦 Без даты</span><span class="date-label">${noDeadline.length}</span></div>
+    <div class="kanban-col-body"
+      ondragover="event.preventDefault();this.classList.add('drag-over')"
+      ondragleave="this.classList.remove('drag-over')"
+      ondrop="dropTask(event,null)">
+      ${noDeadline.map(t => kanbanCard(t)).join('')}
+    </div>
+  </div>`;
+
+  html += '</div></div>';
+  document.getElementById('kanban-view').innerHTML = html;
+}
+
+function kanbanCard(t) {
+  const safeTitle = (t.title||'').replace(/'/g,"\'").replace(/"/g,'&quot;');
+  return `<div class="kanban-card" id="kcard-${t.id}" draggable="true"
+    ondragstart="dragStart(event,'${t.id}')"
+    ondragend="dragEnd(event)">
+    <div class="kanban-card-actions">
+      <button class="btn-icon" style="font-size:12px" onclick="openEdit('${t.id}','${safeTitle}','${t.deadline||''}','${t.reminder_time||''}','${t.priority}','${t.category}')">✏️</button>
+      <button class="btn-icon" style="font-size:12px;color:var(--green)" onclick="doneTask('${t.id}')">✓</button>
+      <button class="btn-icon" style="font-size:12px" onclick="deleteTask('${t.id}')">🗑</button>
+    </div>
+    <div class="kanban-card-title">${t.emoji||'📌'} ${t.title}</div>
+    <div class="kanban-card-meta">
+      <span style="font-size:13px">${PRIORITY_LABEL[t.priority]||''}</span>
+      ${t.reminder_time ? `<span class="time-tag" style="font-size:10px">⏰ ${t.reminder_time}</span>` : ''}
+    </div>
+  </div>`;
+}
+
+function dragStart(e, taskId) {
+  draggedTaskId = taskId;
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => { const el = document.getElementById('kcard-'+taskId); if(el) el.classList.add('dragging'); }, 0);
+}
+
+function dragEnd(e) {
+  if (draggedTaskId) {
+    const el = document.getElementById('kcard-'+draggedTaskId);
+    if (el) el.classList.remove('dragging');
+  }
+  document.querySelectorAll('.kanban-col-body').forEach(b => b.classList.remove('drag-over'));
+}
+
+async function dropTask(e, newDate) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (!draggedTaskId) return;
+  const taskId = draggedTaskId;
+  draggedTaskId = null;
+  
+  // Update in DB
+  await api(`/api/tasks/${taskId}/update`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({deadline: newDate})
+  });
+  
+  // Update local state and re-render
+  const task = allTasks.find(t => t.id === taskId);
+  if (task) task.deadline = newDate;
+  renderKanban();
+  toast('Задача перенесена!');
+}
+
+async function doneTask(id) {
+  await api(`/api/tasks/${id}/toggle`, {method:'POST'});
+  allTasks = allTasks.filter(t => t.id !== id);
+  renderKanban();
+  toast('Задача выполнена! 🎉');
+}
+
+function quickAddTask(date) {
+  document.getElementById('t-deadline').value = date;
+  toggleAddTask();
+  document.getElementById('t-title').focus();
+}
 
 function openEdit(id,title,deadline,time,priority,category){
   editingTaskId=id;
@@ -290,7 +494,7 @@ function closeEditModal(){document.getElementById('edit-modal').classList.remove
 async function saveEditTask(){
   if(!editingTaskId)return;
   await api(`/api/tasks/${editingTaskId}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:document.getElementById('edit-title').value.trim(),deadline:document.getElementById('edit-deadline').value||null,reminder_time:document.getElementById('edit-time').value||null,priority:document.getElementById('edit-priority').value,category:document.getElementById('edit-category').value})});
-  closeEditModal();toast('Сохранено!');loadTasks();
+  closeEditModal();toast('Сохранено!');await loadTasks();
 }
 document.getElementById('edit-modal').addEventListener('click',function(e){if(e.target===this)closeEditModal();});
 
