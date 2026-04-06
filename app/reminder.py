@@ -33,6 +33,7 @@ async def check_reminders(bot_app):
 
             # Проверяем — до задачи от 55 до 65 минут
             diff = (task_time - now).total_seconds() / 60
+            logger.info(f"Task '{task['title']}': time={task['reminder_time']}, diff={diff:.1f} min, now={now.strftime('%H:%M')}")
             if 55 <= diff <= 65:
                 try:
                     await bot_app.bot.send_message(
