@@ -19,8 +19,11 @@ class Database:
     # ── USERS ──────────────────────────────────────────────────────────────
 
     def get_user(self, telegram_id: int) -> dict | None:
-        res = supabase.table("users").select("*").eq("id", telegram_id).single().execute()
-        return res.data if res.data else None
+        try:
+            res = supabase.table("users").select("*").eq("id", telegram_id).single().execute()
+            return res.data if res.data else None
+        except Exception:
+            return None
 
     def get_user_by_token(self, token: str) -> dict | None:
         res = supabase.table("users").select("*").eq("web_token", token).single().execute()

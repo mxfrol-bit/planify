@@ -40,6 +40,17 @@ async def send_task_reminder(bot_app, task: dict):
     db.mark_reminded(task["id"])
     logger.info(f"Task reminder sent: {title}")
 
+    # Голосовой звонок если есть номер телефона
+    try:
+        from app.caller import make_call, notify_call_result
+        user = db.get_user(task["user_id"])
+        phone = user.get("phone") if user else None
+        if phone:
+            call_result = await make_call(phone, task)
+            await notify_call_result(bot_app, task["user_id"], task, call_result)
+    except Exception as e:
+        logger.error(f"Call error: {e}")
+
 
 async def send_habit_reminder(bot_app, habit: dict):
     """Напоминание о невыполненной привычке"""

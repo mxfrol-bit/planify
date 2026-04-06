@@ -289,6 +289,35 @@ async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Отменено.")
     return ConversationHandler.END
 
+
+async def setphone(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Команда /setphone +79001234567"""
+    ensure_user(update)
+    uid = update.effective_user.id
+    args = ctx.args
+    if not args:
+        await update.message.reply_text(
+            "📞 Укажите номер телефона:
+"
+            "`/setphone +79001234567`
+
+"
+            "Бот будет звонить на этот номер за час до задачи.",
+            parse_mode="Markdown"
+        )
+        return
+    phone = args[0].strip()
+    # Сохраняем телефон
+    from app.database import supabase
+    supabase.table("users").update({"phone": phone}).eq("id", uid).execute()
+    await update.message.reply_text(
+        f"✅ Номер сохранён: *{phone}*
+
+"
+        f"Теперь бот будет звонить вам за час до задач с напоминанием!",
+        parse_mode="Markdown"
+    )
+
 # ── /progress ─────────────────────────────────────────────────────────────
 
 async def progress(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -407,6 +436,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("tasks", tasks_list))
     app.add_handler(CommandHandler("progress", progress))
     app.add_handler(CommandHandler("web", web_link))
+    app.add_handler(CommandHandler("setphone", setphone))
     app.add_handler(habit_conv)
     app.add_handler(task_conv)
     app.add_handler(CallbackQueryHandler(toggle_habit_callback, pattern="^toggle_habit:"))
