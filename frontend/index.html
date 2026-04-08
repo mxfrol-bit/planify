@@ -705,10 +705,9 @@ async function aiSend(preset){
     const habits=await api('/api/habits');
     const context=`Пользователь использует планировщик Planify. Его задачи: ${tasks.slice(0,5).map(t=>t.title).join(', ')||'нет'}. Привычки: ${habits.map(h=>h.name).join(', ')||'нет'}.`;
     
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,system:`Ты дружелюбный ИИ-ассистент планировщика Planify. Отвечай кратко и по делу на русском языке. ${context}`,messages:[...chatHistory,{role:'user',content:text}]})});
-    const data=await resp.json();
+    const resp=await api('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system:`Ты дружелюбный ИИ-ассистент планировщика Planify. Отвечай кратко и по делу на русском языке. ${context}`,messages:[...chatHistory,{role:'user',content:text}]})});
     typing.remove();
-    const answer=data.content?.[0]?.text||'Не удалось получить ответ';
+    const answer=resp.text||'Не удалось получить ответ';
     addMsg(answer,'ai');
     chatHistory.push({role:'user',content:text},{role:'assistant',content:answer});
     if(chatHistory.length>20)chatHistory=chatHistory.slice(-20);

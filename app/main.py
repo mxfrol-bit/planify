@@ -253,6 +253,50 @@ def get_week_stats(token: str):
     return week_data
 
 
+# ── AI Chat proxy ─────────────────────────────────────────────────────────
+
+@app.post("/api/ai/chat")
+async def ai_chat(request: Request, token: str):
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    
+    body = await request.json()
+    messages = body.get("messages", [])
+    system = body.get("system", "Ты дружелюбный ИИ-ассистент планировщика Planify. Отвечай кратко на русском языке.")
+    
+    import httpx, os
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    
+    try:
+        if openrouter_key:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {openrouter_key}", "Content-Type": "application/json"},
+                    json={"model": "google/gemini-2.0-flash-001", "max_tokens": 600,
+                          "messages": [{"role": "system", "content": system}] + messages}
+                )
+            data = resp.json()
+            text = data["choices"][0]["message"]["content"]
+        elif api_key:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"},
+                    json={"model": "claude-haiku-4-5-20251001", "max_tokens": 600, "system": system, "messages": messages}
+                )
+            data = resp.json()
+            text = data["content"][0]["text"]
+        else:
+            text = "AI не настроен. Добавьте OPENROUTER_API_KEY в Railway Variables."
+        return {"text": text}
+    except Exception as e:
+        logger.error(f"AI chat error: {e}")
+        raise HTTPException(500, str(e))
+
+
 # ── Serve Frontend ────────────────────────────────────────────────────────
 
 app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
