@@ -316,19 +316,12 @@ async def setphone(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     args = ctx.args
     if not args:
-        await update.message.reply_text(
-            "📞 Укажите номер телефона:\n`/setphone +79001234567`\n\nБот будет звонить на этот номер за час до задачи.",
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text("Укажите номер телефона: /setphone +79001234567")
         return
     phone = args[0].strip()
-    # Сохраняем телефон
     from app.database import supabase
     supabase.table("users").update({"phone": phone}).eq("id", uid).execute()
-    await update.message.reply_text(
-        f"✅ Номер сохранён: *{phone}*\n\nТеперь бот будет звонить вам за час до задач с напоминанием!",
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(f"Номер сохранён: {phone}. Буду звонить за час до задач!")
 
 # ── /progress ─────────────────────────────────────────────────────────────
 
