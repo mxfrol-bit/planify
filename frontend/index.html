@@ -593,16 +593,31 @@ function kcard(t){
   </div>`;
 }
 
-function dragStart(e,id){dragId=id;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',id);setTimeout(()=>{const el=document.getElementById('kc-'+id);if(el)el.classList.add('dragging');},0);}
-function dragEnd(){document.querySelectorAll('.kcb').forEach(b=>b.classList.remove('dov'));document.querySelectorAll('.kcard').forEach(c=>c.classList.remove('dragging'));dragId=null;}
+function dragStart(e,id){
+  dragId=id;
+  e.dataTransfer.effectAllowed='move';
+  e.dataTransfer.setData('text/plain',id);
+  setTimeout(()=>{const el=document.getElementById('kc-'+id);if(el)el.classList.add('dragging');},0);
+}
+function dragEnd(){
+  // НЕ сбрасываем dragId здесь — drop может ещё не сработал
+  setTimeout(()=>{
+    document.querySelectorAll('.kcb').forEach(b=>b.classList.remove('dov'));
+    document.querySelectorAll('.kcard').forEach(c=>c.classList.remove('dragging'));
+    dragId=null;
+  },100);
+}
 
 async function drop(e,nd){
-  e.preventDefault();e.stopPropagation();e.currentTarget.classList.remove('dov');
-  const id=e.dataTransfer.getData('text/plain')||dragId;dragId=null;
-  if(!id)return;
+  e.preventDefault();
+  e.stopPropagation();
+  e.currentTarget.classList.remove('dov');
+  const id=e.dataTransfer.getData('text/plain')||dragId;
+  if(!id){dragId=null;return;}
+  dragId=null;
   await api(`/api/tasks/${id}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deadline:nd})});
   const t=allTasks.find(x=>x.id===id);if(t)t.deadline=nd;
-  renderKanban();toast('Перенесено!');
+  renderKanban();toast('Перенесено! 🎉');
 }
 
 // Mobile tap-to-move
