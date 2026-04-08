@@ -317,12 +317,7 @@ async def setphone(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     args = ctx.args
     if not args:
         await update.message.reply_text(
-            "📞 Укажите номер телефона:
-"
-            "`/setphone +79001234567`
-
-"
-            "Бот будет звонить на этот номер за час до задачи.",
+            "📞 Укажите номер телефона:\n`/setphone +79001234567`\n\nБот будет звонить на этот номер за час до задачи.",
             parse_mode="Markdown"
         )
         return
@@ -331,10 +326,7 @@ async def setphone(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     from app.database import supabase
     supabase.table("users").update({"phone": phone}).eq("id", uid).execute()
     await update.message.reply_text(
-        f"✅ Номер сохранён: *{phone}*
-
-"
-        f"Теперь бот будет звонить вам за час до задач с напоминанием!",
+        f"✅ Номер сохранён: *{phone}*\n\nТеперь бот будет звонить вам за час до задач с напоминанием!",
         parse_mode="Markdown"
     )
 
@@ -410,15 +402,7 @@ async def habit_settings_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE
             [InlineKeyboardButton("← Назад", callback_data="cmd:habits")],
         ]
         await query.edit_message_text(
-            f"⚙️ *{habit['emoji']} {habit['name']}*
-
-"
-            f"🔥 Стрик: *{streak} дней*
-"
-            f"🏆 Рекорд: *{best} дней*
-"
-            f"⏰ Напоминание: *{rem_time}*
-",
+            f"⚙️ *{habit['emoji']} {habit['name']}*\n\n🔥 Стрик: *{streak} дней*\n🏆 Рекорд: *{best} дней*\n⏰ Напоминание: *{rem_time}*",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(kb)
         )
