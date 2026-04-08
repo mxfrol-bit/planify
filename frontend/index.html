@@ -2,675 +2,755 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f0f14">
-<title>Planify</title>
+<title>Planify — ИИ Планировщик</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-:root{--bg:#0f0f14;--surface:#1a1a24;--surface2:#22222f;--border:#2d2d3d;--accent:#7c6ff7;--accent2:#a78bfa;--green:#34d399;--orange:#fb923c;--red:#f87171;--yellow:#fbbf24;--text:#e2e2f0;--muted:#6b6b8a;--radius:16px;--nav-h:64px;}
+:root{--bg:#0f0f14;--s:#1a1a24;--s2:#22222f;--b:#2d2d3d;--ac:#7c6ff7;--ac2:#a78bfa;--gr:#34d399;--or:#fb923c;--rd:#f87171;--yw:#fbbf24;--tx:#e2e2f0;--mt:#6b6b8a;--r:14px;--nh:64px;}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;overflow-x:hidden;}
+body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;}
 
-/* ── Desktop Layout ─────────────────────────────────────────── */
-.sidebar{width:240px;background:var(--surface);border-right:1px solid var(--border);padding:24px 16px;display:flex;flex-direction:column;gap:8px;position:fixed;top:0;left:0;bottom:0;z-index:50;}
-.main{margin-left:240px;padding:32px;min-height:100vh;}
-.logo{font-size:22px;font-weight:800;color:var(--accent2);padding:0 8px 16px;border-bottom:1px solid var(--border);margin-bottom:8px;}
-.logo span{color:var(--muted);font-weight:400;font-size:13px;display:block;margin-top:2px;}
-.nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;cursor:pointer;color:var(--muted);font-size:14px;font-weight:500;transition:all .15s;}
-.nav-item:hover{background:var(--surface2);color:var(--text);}
-.nav-item.active{background:linear-gradient(135deg,#4f46e5,#7c6ff7);color:white;}
-.nav-icon{font-size:18px;width:22px;text-align:center;}
-.nav-sep{height:1px;background:var(--border);margin:8px 0;}
-.bottom-nav{display:none;}
+/* Layout */
+.sidebar{width:240px;background:var(--s);border-right:1px solid var(--b);padding:20px 14px;display:flex;flex-direction:column;gap:6px;position:fixed;top:0;left:0;bottom:0;z-index:50;overflow-y:auto;}
+.main{margin-left:240px;padding:28px;min-height:100vh;}
+.logo{display:flex;align-items:center;gap:10px;padding:0 8px 16px;border-bottom:1px solid var(--b);margin-bottom:10px;}
+.logo-icon{width:36px;height:36px;background:linear-gradient(135deg,#4f46e5,#7c6ff7);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.logo-text{font-size:18px;font-weight:800;color:var(--ac2);}
+.logo-sub{font-size:11px;color:var(--mt);}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;cursor:pointer;color:var(--mt);font-size:13px;font-weight:500;transition:all .15s;user-select:none;}
+.nav-item:hover{background:var(--s2);color:var(--tx);}
+.nav-item.active{background:linear-gradient(135deg,rgba(79,70,229,.3),rgba(124,111,247,.2));color:var(--ac2);border:1px solid rgba(124,111,247,.3);}
+.nav-icon{font-size:16px;width:20px;text-align:center;}
+.nav-sep{height:1px;background:var(--b);margin:8px 0;}
+.nav-section{font-size:10px;color:var(--mt);text-transform:uppercase;letter-spacing:1px;padding:4px 12px;margin-top:4px;}
 
-/* ── Mobile Layout ─────────────────────────────────────────── */
+/* Mobile */
+.bnav{display:none;position:fixed;bottom:0;left:0;right:0;height:var(--nh);background:rgba(26,26,36,.96);backdrop-filter:blur(20px);border-top:1px solid var(--b);z-index:100;padding:0 4px;align-items:center;justify-content:space-around;}
+.bni{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 12px;border-radius:10px;cursor:pointer;color:var(--mt);font-size:10px;font-weight:500;flex:1;transition:all .2s;}
+.bni.active{color:var(--ac2);}
+.bni-icon{font-size:20px;}
+.fab{display:none;position:fixed;bottom:calc(var(--nh)+12px);right:16px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#4f46e5,#7c6ff7);border:none;color:white;font-size:22px;cursor:pointer;box-shadow:0 4px 20px rgba(124,111,247,.5);z-index:99;align-items:center;justify-content:center;}
 @media(max-width:768px){
-  .sidebar{display:none;}
-  .main{margin-left:0;padding:16px;padding-bottom:calc(var(--nav-h) + 24px);}
-  .bottom-nav{display:flex;position:fixed;bottom:0;left:0;right:0;height:var(--nav-h);background:rgba(26,26,36,.95);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);z-index:100;padding:0 8px;align-items:center;justify-content:space-around;safe-area-inset-bottom:env(safe-area-inset-bottom);}
-  .bnav-item{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 16px;border-radius:12px;cursor:pointer;color:var(--muted);font-size:10px;font-weight:500;transition:all .2s;flex:1;}
-  .bnav-item.active{color:var(--accent2);}
-  .bnav-icon{font-size:22px;transition:transform .2s;}
-  .bnav-item.active .bnav-icon{transform:scale(1.15);}
-  .section-title{font-size:18px;}
-  .stats-grid{grid-template-columns:repeat(2,1fr)!important;gap:12px!important;}
-  .stat-value{font-size:26px!important;}
+  .sidebar{display:none;}.main{margin-left:0;padding:14px;padding-bottom:calc(var(--nh)+20px);}
+  .bnav{display:flex;}.fab{display:flex;}
+  .stats-grid{grid-template-columns:repeat(2,1fr)!important;gap:10px!important;}
   .grid2{grid-template-columns:1fr!important;}
+  .kanban-col{width:155px;min-width:155px;}
 }
 
-/* ── Components ─────────────────────────────────────────────── */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;}
-.section-title{font-size:20px;font-weight:700;margin-bottom:20px;}
-.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
-.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;}
-.stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;}
-.stat-value{font-size:30px;font-weight:800;line-height:1;}
-.stat-sub{font-size:11px;color:var(--muted);margin-top:4px;}
+/* Cards */
+.card{background:var(--s);border:1px solid var(--b);border-radius:var(--r);padding:20px;}
+.card-sm{background:var(--s);border:1px solid var(--b);border-radius:var(--r);padding:14px;}
+.section-title{font-size:19px;font-weight:700;margin-bottom:18px;}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
+.stat-card{background:var(--s);border:1px solid var(--b);border-radius:var(--r);padding:16px;position:relative;overflow:hidden;}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+.stat-card.blue::before{background:linear-gradient(90deg,#4f46e5,#7c6ff7);}
+.stat-card.green::before{background:linear-gradient(90deg,#059669,#34d399);}
+.stat-card.orange::before{background:linear-gradient(90deg,#d97706,#fb923c);}
+.stat-card.red::before{background:linear-gradient(90deg,#dc2626,#f87171);}
+.stat-label{font-size:11px;color:var(--mt);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;}
+.stat-value{font-size:28px;font-weight:800;line-height:1;}
+.stat-sub{font-size:11px;color:var(--mt);margin-top:3px;}
 .ring-wrap{display:flex;align-items:center;gap:12px;}
-.ring-canvas{width:72px!important;height:72px!important;}
+.ring-canvas{width:68px!important;height:68px!important;}
 .donut-wrap{position:relative;display:inline-flex;align-items:center;justify-content:center;}
-.donut-label{position:absolute;font-size:16px;font-weight:800;}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+.donut-label{position:absolute;font-size:14px;font-weight:800;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 
 /* Tasks */
-.task-item{display:flex;align-items:flex-start;gap:12px;padding:14px;background:var(--surface2);border-radius:12px;margin-bottom:8px;border:1px solid transparent;transition:all .15s;}
-.task-item:hover{border-color:var(--border);}
+.task-item{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;background:var(--s2);border-radius:10px;margin-bottom:6px;border:1px solid transparent;transition:all .15s;}
+.task-item:hover{border-color:var(--b);}
 .task-item.done{opacity:.4;}
-.task-check{width:22px;height:22px;border-radius:6px;border:2px solid var(--muted);flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;}
-.task-item.done .task-check{background:var(--green);border-color:var(--green);}
+.task-check{width:20px;height:20px;border-radius:5px;border:2px solid var(--mt);flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;margin-top:1px;}
+.task-item.done .task-check{background:var(--gr);border-color:var(--gr);}
 .task-body{flex:1;min-width:0;}
-.task-title{font-size:14px;font-weight:500;margin-bottom:5px;cursor:pointer;}
-.task-title:hover{color:var(--accent2);}
-.task-item.done .task-title{text-decoration:line-through;color:var(--muted);}
-.task-meta{display:flex;gap:5px;align-items:center;flex-wrap:wrap;}
-.task-actions{display:flex;gap:4px;flex-shrink:0;}
+.task-title{font-size:13px;font-weight:500;margin-bottom:4px;cursor:pointer;line-height:1.4;}
+.task-title:hover{color:var(--ac2);}
+.task-item.done .task-title{text-decoration:line-through;color:var(--mt);}
+.task-meta{display:flex;gap:4px;flex-wrap:wrap;align-items:center;}
+.task-actions{display:flex;gap:2px;flex-shrink:0;}
 
 /* Habits */
-.habit-item{display:flex;align-items:center;gap:12px;padding:14px;background:var(--surface2);border-radius:12px;margin-bottom:8px;cursor:pointer;border:2px solid transparent;transition:all .15s;}
-.habit-item.done{border-color:var(--green);background:rgba(52,211,153,.06);}
-.habit-check{width:24px;height:24px;border-radius:8px;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;}
-.habit-item.done .habit-check{background:var(--green);border-color:var(--green);}
-.habit-name{flex:1;font-size:14px;font-weight:500;}
-.habit-item.done .habit-name{text-decoration:line-through;color:var(--muted);}
-.habit-delete{opacity:0;color:var(--muted);font-size:16px;transition:opacity .15s;}
-.habit-item:hover .habit-delete{opacity:1;}
+.habit-item{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--s2);border-radius:10px;margin-bottom:6px;cursor:pointer;border:2px solid transparent;transition:all .15s;}
+.habit-item.done{border-color:var(--gr);background:rgba(52,211,153,.06);}
+.habit-check{width:22px;height:22px;border-radius:7px;border:2px solid var(--b);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;}
+.habit-item.done .habit-check{background:var(--gr);border-color:var(--gr);}
+.habit-name{flex:1;font-size:13px;font-weight:500;}
+.habit-item.done .habit-name{text-decoration:line-through;color:var(--mt);}
+.habit-del{opacity:0;color:var(--mt);font-size:14px;transition:opacity .15s;cursor:pointer;}
+.habit-item:hover .habit-del{opacity:1;}
 
 /* Badges */
-.badge{padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600;}
-.badge-urgent{background:rgba(248,113,113,.15);color:var(--red);}
-.badge-high{background:rgba(251,146,60,.15);color:var(--orange);}
-.badge-medium{background:rgba(251,191,36,.15);color:var(--yellow);}
-.badge-low{background:rgba(52,211,153,.15);color:var(--green);}
-.badge-work{background:rgba(124,111,247,.15);color:var(--accent2);}
-.badge-personal{background:rgba(148,163,184,.1);color:var(--muted);}
-.badge-health{background:rgba(52,211,153,.1);color:var(--green);}
-.badge-learning{background:rgba(251,191,36,.1);color:var(--yellow);}
-.deadline-tag{font-size:11px;color:var(--muted);}
-.deadline-tag.overdue{color:var(--red);}
-.deadline-tag.today{color:var(--orange);}
-.time-tag{font-size:11px;color:var(--accent2);background:rgba(124,111,247,.1);padding:2px 6px;border-radius:5px;}
+.badge{padding:2px 7px;border-radius:5px;font-size:10px;font-weight:700;}
+.bu{background:rgba(248,113,113,.15);color:var(--rd);}
+.bh{background:rgba(251,146,60,.15);color:var(--or);}
+.bm{background:rgba(251,191,36,.15);color:var(--yw);}
+.bl{background:rgba(52,211,153,.15);color:var(--gr);}
+.bw{background:rgba(124,111,247,.15);color:var(--ac2);}
+.bp{background:rgba(148,163,184,.1);color:var(--mt);}
+.bhe{background:rgba(52,211,153,.1);color:var(--gr);}
+.ble{background:rgba(251,191,36,.1);color:var(--yw);}
+.dt{font-size:10px;color:var(--mt);}
+.dt.ov{color:var(--rd);}
+.dt.td{color:var(--or);}
+.tt{font-size:10px;color:var(--ac2);background:rgba(124,111,247,.1);padding:2px 6px;border-radius:4px;}
 
 /* Buttons */
-.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 16px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all .15s;white-space:nowrap;}
-.btn-primary{background:linear-gradient(135deg,#4f46e5,#7c6ff7);color:white;}
-.btn-primary:active{transform:scale(.97);}
-.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border);}
-.btn-ghost:active{background:var(--border);}
-.btn-sm{padding:6px 12px;font-size:12px;}
-.btn-icon{padding:6px 8px;background:transparent;border:none;cursor:pointer;color:var(--muted);border-radius:6px;transition:all .15s;font-size:14px;}
-.btn-icon:hover{background:var(--surface);color:var(--text);}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .15s;white-space:nowrap;}
+.btn-p{background:linear-gradient(135deg,#4f46e5,#7c6ff7);color:white;}
+.btn-p:hover{box-shadow:0 4px 16px rgba(124,111,247,.4);transform:translateY(-1px);}
+.btn-p:active{transform:scale(.97);}
+.btn-g{background:var(--s2);color:var(--tx);border:1px solid var(--b);}
+.btn-g:hover{background:var(--b);}
+.btn-sm{padding:5px 11px;font-size:12px;}
+.btn-xs{padding:3px 8px;font-size:11px;}
+.bti{padding:5px 7px;background:transparent;border:none;cursor:pointer;color:var(--mt);border-radius:6px;transition:all .15s;font-size:13px;}
+.bti:hover{background:var(--s);color:var(--tx);}
 
-input,select{background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:11px 14px;font-size:16px;outline:none;transition:border .15s;font-family:inherit;width:100%;}
-input:focus,select:focus{border-color:var(--accent);}
-select option{background:var(--surface2);}
-.form-row{display:flex;gap:10px;margin-bottom:14px;}
-.form-group{display:flex;flex-direction:column;gap:6px;flex:1;}
-.form-label{font-size:12px;color:var(--muted);font-weight:500;}
-@media(max-width:768px){.form-row{flex-wrap:wrap;}.form-row .form-group{min-width:calc(50% - 5px);}}
+input,select,textarea{background:var(--s2);border:1px solid var(--b);border-radius:9px;color:var(--tx);padding:10px 13px;font-size:14px;outline:none;transition:border .15s;font-family:inherit;width:100%;}
+input:focus,select:focus,textarea:focus{border-color:var(--ac);}
+select option{background:var(--s2);}
+.fr{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+.fg{display:flex;flex-direction:column;gap:5px;flex:1;min-width:140px;}
+.fl{font-size:11px;color:var(--mt);font-weight:500;}
 
 /* Tabs */
-.tabs{display:flex;gap:4px;background:var(--surface2);padding:4px;border-radius:12px;margin-bottom:18px;width:fit-content;}
-.tab{padding:7px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted);transition:all .15s;}
-.tab.active{background:var(--surface);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.3);}
+.tabs{display:flex;gap:3px;background:var(--s2);padding:3px;border-radius:10px;margin-bottom:16px;width:fit-content;}
+.tab{padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;color:var(--mt);transition:all .15s;}
+.tab.active{background:var(--s);color:var(--tx);box-shadow:0 1px 4px rgba(0,0,0,.3);}
 
-.page{display:none;}.page.active{display:block;}
-.add-form{background:var(--surface2);border-radius:12px;padding:16px;margin-bottom:16px;border:1px solid var(--border);}
-.loader{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--muted);}
-.empty{text-align:center;padding:40px 20px;color:var(--muted);}
-.empty-icon{font-size:40px;margin-bottom:12px;}
+.page{display:none;} .page.active{display:block;}
+.add-form{background:var(--s2);border-radius:12px;padding:14px;margin-bottom:14px;border:1px solid var(--b);}
+.loader{display:flex;align-items:center;justify-content:center;padding:36px;color:var(--mt);font-size:13px;}
+.empty{text-align:center;padding:36px 20px;color:var(--mt);}
+.empty-icon{font-size:36px;margin-bottom:10px;}
 
 /* Week chart */
-.week-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
-.week-day{background:var(--surface2);border-radius:10px;padding:10px 6px;text-align:center;}
-.week-day-name{font-size:10px;color:var(--muted);margin-bottom:5px;}
-.week-day-bar{height:50px;background:var(--border);border-radius:5px;overflow:hidden;display:flex;align-items:flex-end;}
-.week-day-fill{width:100%;border-radius:5px;background:linear-gradient(to top,#4f46e5,#a78bfa);transition:height .4s;}
-.week-day-pct{font-size:10px;font-weight:700;margin-top:5px;}
+.wg{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+.wd{background:var(--s2);border-radius:8px;padding:10px 6px;text-align:center;}
+.wdn{font-size:10px;color:var(--mt);margin-bottom:5px;}
+.wdb{height:48px;background:var(--b);border-radius:5px;overflow:hidden;display:flex;align-items:flex-end;}
+.wdf{width:100%;border-radius:5px;background:linear-gradient(to top,#4f46e5,#a78bfa);transition:height .4s;}
+.wdp{font-size:10px;font-weight:700;margin-top:4px;}
+
+/* Heatmap */
+.heatmap{display:flex;gap:3px;flex-wrap:wrap;}
+.hm-day{width:12px;height:12px;border-radius:2px;background:var(--b);transition:all .15s;cursor:pointer;}
+.hm-day:hover{transform:scale(1.3);}
+.hm-day.l1{background:rgba(124,111,247,.2);}
+.hm-day.l2{background:rgba(124,111,247,.4);}
+.hm-day.l3{background:rgba(124,111,247,.7);}
+.hm-day.l4{background:#7c6ff7;}
+.hm-months{display:flex;gap:3px;margin-bottom:4px;}
+.hm-month{font-size:10px;color:var(--mt);}
 
 /* Kanban */
-.kanban-scroll{overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch;}
-.kanban-board{display:flex;gap:10px;padding-bottom:4px;}
-.kanban-col{width:180px;min-width:180px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
-@media(max-width:768px){.kanban-col{width:160px;min-width:160px;}}
-.kanban-col-header{padding:10px 12px;font-size:12px;font-weight:700;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
-.kanban-col-header .date-label{font-size:10px;color:var(--muted);font-weight:400;}
-.kanban-col.is-today .kanban-col-header{background:linear-gradient(135deg,rgba(79,70,229,.2),rgba(124,111,247,.1));}
-.kanban-col.is-overdue .kanban-col-header{background:rgba(248,113,113,.08);}
-.kanban-col-body{padding:6px;min-height:100px;transition:background .15s;}
-.kanban-col-body.drag-over{background:rgba(124,111,247,.1);}
-.kanban-card{background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:9px 10px;margin-bottom:5px;cursor:grab;transition:all .15s;position:relative;touch-action:none;}
-.kanban-card:hover{border-color:var(--accent);box-shadow:0 4px 16px rgba(0,0,0,.3);}
-.kanban-card.dragging{opacity:.3;}
-.kanban-card-title{font-size:12px;font-weight:500;margin-bottom:5px;line-height:1.3;}
-.kanban-card-meta{display:flex;gap:3px;flex-wrap:wrap;align-items:center;}
-.kanban-card-actions{display:flex;gap:2px;margin-top:6px;opacity:0;transition:opacity .15s;}
-.kanban-card:hover .kanban-card-actions{opacity:1;}
-@media(max-width:768px){.kanban-card-actions{opacity:1;}}
-.kanban-add-btn{width:100%;padding:7px;background:transparent;border:1px dashed var(--border);border-radius:7px;color:var(--muted);font-size:11px;cursor:pointer;transition:all .15s;margin-top:3px;}
-.kanban-add-btn:hover{border-color:var(--accent);color:var(--accent2);}
-.kanban-week-nav{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
-@media(max-width:768px){.kanban-week-nav{gap:6px;}.kanban-week-nav .btn{font-size:12px;padding:6px 10px;}}
+.ks{overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch;}
+.kb{display:flex;gap:10px;padding-bottom:4px;}
+.kc{width:175px;min-width:175px;flex-shrink:0;background:var(--s);border:1px solid var(--b);border-radius:12px;overflow:hidden;}
+.kch{padding:10px 12px;font-size:12px;font-weight:700;border-bottom:1px solid var(--b);display:flex;align-items:center;justify-content:space-between;}
+.kch .dl{font-size:10px;color:var(--mt);font-weight:400;}
+.kc.kt .kch{background:linear-gradient(135deg,rgba(79,70,229,.2),rgba(124,111,247,.1));}
+.kc.ko .kch{background:rgba(248,113,113,.08);}
+.kcb{padding:6px;min-height:90px;transition:background .15s;}
+.kcb.dov{background:rgba(124,111,247,.08);}
+.kcard{background:var(--s2);border:1px solid var(--b);border-radius:8px;padding:8px 10px;margin-bottom:5px;cursor:grab;transition:all .15s;position:relative;}
+.kcard:hover{border-color:var(--ac);box-shadow:0 2px 12px rgba(0,0,0,.3);}
+.kcard.sel{border-color:var(--ac);background:rgba(124,111,247,.15);box-shadow:0 0 0 2px var(--ac);}
+.kcard.dragging{opacity:.3;}
+.kct{font-size:12px;font-weight:500;margin-bottom:4px;line-height:1.3;}
+.kcm{display:flex;gap:3px;align-items:center;flex-wrap:wrap;}
+.kca{display:flex;gap:2px;margin-top:5px;}
+.kadd{width:100%;padding:6px;background:transparent;border:1px dashed var(--b);border-radius:7px;color:var(--mt);font-size:11px;cursor:pointer;transition:all .15s;margin-top:3px;}
+.kadd:hover{border-color:var(--ac);color:var(--ac2);}
+.kwnav{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
+.sel-hint{position:fixed;bottom:calc(var(--nh)+80px);left:50%;transform:translateX(-50%);background:var(--ac);color:white;padding:8px 18px;border-radius:10px;font-size:12px;font-weight:600;z-index:150;box-shadow:0 4px 16px rgba(124,111,247,.5);pointer-events:none;}
+
+/* AI Chat */
+.chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:400px;}
+.chat-msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;}
+.msg{max-width:80%;padding:10px 14px;border-radius:14px;font-size:13px;line-height:1.5;}
+.msg-ai{background:var(--s2);border:1px solid var(--b);border-radius:14px 14px 14px 4px;align-self:flex-start;}
+.msg-user{background:linear-gradient(135deg,#4f46e5,#7c6ff7);color:white;border-radius:14px 14px 4px 14px;align-self:flex-end;}
+.msg-time{font-size:10px;opacity:.6;margin-top:4px;}
+.chat-input-wrap{display:flex;gap:8px;padding-top:12px;border-top:1px solid var(--b);}
+.chat-input{flex:1;resize:none;border-radius:12px;padding:10px 14px;font-size:13px;max-height:100px;}
+.chat-send{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#4f46e5,#7c6ff7);border:none;color:white;font-size:18px;cursor:pointer;flex-shrink:0;}
+.typing{display:flex;gap:4px;align-items:center;padding:10px 14px;}
+.typing span{width:6px;height:6px;background:var(--mt);border-radius:50%;animation:bounce .8s infinite;}
+.typing span:nth-child(2){animation-delay:.15s;}
+.typing span:nth-child(3){animation-delay:.3s;}
+@keyframes bounce{0%,100%{transform:translateY(0);}50%{transform:translateY(-5px);}}
+
+/* Progress ring big */
+.ring-big{position:relative;display:inline-flex;align-items:center;justify-content:center;}
+.ring-big-label{position:absolute;text-align:center;}
 
 /* Modal */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:flex-end;justify-content:center;backdrop-filter:blur(6px);}
-.modal-overlay.open{display:flex;}
-@media(min-width:769px){.modal-overlay{align-items:center;}}
-.modal{background:var(--surface);border:1px solid var(--border);border-radius:20px 20px 0 0;padding:24px;width:100%;max-width:520px;animation:slideUp .25s ease;max-height:90vh;overflow-y:auto;}
-@media(min-width:769px){.modal{border-radius:20px;}}
-@keyframes slideUp{from{transform:translateY(40px);opacity:0;}to{transform:translateY(0);opacity:1;}}
-.modal-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px;}
-.modal-title{font-size:17px;font-weight:700;margin-bottom:18px;}
-.day-btn{padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
-.day-btn.active{background:var(--accent);border-color:var(--accent);color:white;}
+.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:flex-end;justify-content:center;backdrop-filter:blur(6px);}
+.mo.open{display:flex;}
+@media(min-width:769px){.mo{align-items:center;}}
+.modal{background:var(--s);border:1px solid var(--b);border-radius:18px 18px 0 0;padding:22px;width:100%;max-width:500px;animation:slideUp .22s ease;max-height:92vh;overflow-y:auto;}
+@media(min-width:769px){.modal{border-radius:18px;}}
+@keyframes slideUp{from{transform:translateY(30px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+.mhandle{width:36px;height:4px;background:var(--b);border-radius:2px;margin:0 auto 14px;}
+.mtitle{font-size:16px;font-weight:700;margin-bottom:16px;}
 
-/* FAB (mobile add button) */
-.fab{display:none;position:fixed;bottom:calc(var(--nav-h) + 16px);right:16px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#4f46e5,#7c6ff7);border:none;color:white;font-size:24px;cursor:pointer;box-shadow:0 4px 24px rgba(124,111,247,.5);z-index:99;align-items:center;justify-content:center;transition:transform .2s;}
-.fab:active{transform:scale(.93);}
-@media(max-width:768px){.fab{display:flex;}}
-
-/* Mobile tap-to-move */
-.kanban-card.selected{border-color:var(--accent);background:rgba(124,111,247,.15);box-shadow:0 0 0 2px var(--accent);}
-.kanban-col-body.tap-target{background:rgba(124,111,247,.08);border:2px dashed var(--accent);border-radius:8px;cursor:pointer;}
-.move-hint{position:fixed;bottom:calc(var(--nav-h) + 80px);left:50%;transform:translateX(-50%);background:var(--accent);color:white;padding:10px 20px;border-radius:12px;font-size:13px;font-weight:600;z-index:150;box-shadow:0 4px 20px rgba(124,111,247,.5);animation:slideUp .2s ease;}
 /* Toast */
-.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%) translateY(-80px);background:var(--surface);border:1px solid var(--border);padding:10px 20px;border-radius:12px;font-size:13px;transition:transform .3s;z-index:300;box-shadow:0 8px 32px rgba(0,0,0,.4);white-space:nowrap;}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%) translateY(-80px);background:var(--s);border:1px solid var(--b);padding:10px 18px;border-radius:10px;font-size:13px;transition:transform .3s;z-index:300;box-shadow:0 8px 32px rgba(0,0,0,.4);white-space:nowrap;}
 .toast.show{transform:translateX(-50%) translateY(0);}
-@media(min-width:769px){.toast{top:auto;bottom:24px;left:auto;right:24px;transform:translateY(20px);}.toast.show{transform:translateY(0);}}
+@media(min-width:769px){.toast{top:auto;bottom:20px;left:auto;right:20px;transform:translateY(20px);}.toast.show{transform:translateY(0);}}
+
+/* Suggest chips */
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+.chip{padding:5px 11px;background:var(--s2);border:1px solid var(--b);border-radius:20px;font-size:11px;cursor:pointer;color:var(--mt);transition:all .15s;}
+.chip:hover{border-color:var(--ac);color:var(--ac2);}
+
+/* Streak */
+.streak-badge{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;color:var(--or);}
 </style>
 </head>
 <body>
 
-<!-- Desktop Sidebar -->
 <nav class="sidebar">
-  <div class="logo">Planify<span>твой планировщик</span></div>
-  <div class="nav-item active" onclick="showPage('dashboard',this)"><span class="nav-icon">📊</span><span>Дашборд</span></div>
-  <div class="nav-item" onclick="showPage('habits',this)"><span class="nav-icon">🎯</span><span>Привычки</span></div>
-  <div class="nav-item" onclick="showPage('tasks',this)"><span class="nav-icon">📋</span><span>Задачи</span></div>
+  <div class="logo">
+    <div class="logo-icon">✨</div>
+    <div><div class="logo-text">Planify</div><div class="logo-sub">ИИ-планировщик</div></div>
+  </div>
+  <div class="nav-item active" onclick="go('dashboard',this)"><span class="nav-icon">📊</span>Дашборд</div>
+  <div class="nav-item" onclick="go('tasks',this)"><span class="nav-icon">📋</span>Задачи</div>
+  <div class="nav-item" onclick="go('habits',this)"><span class="nav-icon">🎯</span>Привычки</div>
+  <div class="nav-item" onclick="go('analytics',this)"><span class="nav-icon">📈</span>Аналитика</div>
+  <div class="nav-item" onclick="go('ai',this)"><span class="nav-icon">🤖</span>ИИ-ассистент</div>
   <div class="nav-sep"></div>
-  <div class="nav-item" onclick="showPage('settings',this)"><span class="nav-icon">⚙️</span><span>Настройки</span></div>
+  <div class="nav-section">Скоро</div>
+  <div class="nav-item" style="opacity:.4;pointer-events:none"><span class="nav-icon">🗓</span>Календарь</div>
+  <div class="nav-item" style="opacity:.4;pointer-events:none"><span class="nav-icon">🏆</span>Достижения</div>
+  <div class="nav-sep"></div>
+  <div class="nav-item" onclick="go('settings',this)"><span class="nav-icon">⚙️</span>Настройки</div>
 </nav>
 
-<!-- Mobile Bottom Nav -->
-<nav class="bottom-nav">
-  <div class="bnav-item active" onclick="showPage('dashboard',this)" data-page="dashboard"><div class="bnav-icon">📊</div><span>Главная</span></div>
-  <div class="bnav-item" onclick="showPage('habits',this)" data-page="habits"><div class="bnav-icon">🎯</div><span>Привычки</span></div>
-  <div class="bnav-item" onclick="showPage('tasks',this)" data-page="tasks"><div class="bnav-icon">📋</div><span>Задачи</span></div>
-  <div class="bnav-item" onclick="showPage('settings',this)" data-page="settings"><div class="bnav-icon">⚙️</div><span>Настройки</span></div>
+<nav class="bnav">
+  <div class="bni active" onclick="go('dashboard',this)" data-p="dashboard"><div class="bni-icon">📊</div>Главная</div>
+  <div class="bni" onclick="go('tasks',this)" data-p="tasks"><div class="bni-icon">📋</div>Задачи</div>
+  <div class="bni" onclick="go('habits',this)" data-p="habits"><div class="bni-icon">🎯</div>Привычки</div>
+  <div class="bni" onclick="go('ai',this)" data-p="ai"><div class="bni-icon">🤖</div>ИИ</div>
+  <div class="bni" onclick="go('settings',this)" data-p="settings"><div class="bni-icon">⚙️</div>Ещё</div>
 </nav>
 
-<!-- FAB -->
-<button class="fab" id="fab-btn" onclick="onFab()">＋</button>
+<button class="fab" id="fab" onclick="onFab()">＋</button>
 
 <main class="main">
-  <!-- DASHBOARD -->
-  <div id="page-dashboard" class="page active">
-    <div class="section-title">Сегодня, <span id="today-date">...</span></div>
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-label">Сегодня</div><div class="ring-wrap"><div class="donut-wrap"><canvas id="ring-today" width="72" height="72" class="ring-canvas"></canvas><div class="donut-label" id="ring-today-pct">0%</div></div><div><div class="stat-value" id="stat-habits-done">0</div><div style="font-size:11px;color:var(--muted)">из <span id="stat-habits-total">0</span></div></div></div></div>
-      <div class="stat-card"><div class="stat-label">Неделя</div><div class="ring-wrap"><div class="donut-wrap"><canvas id="ring-week" width="72" height="72" class="ring-canvas"></canvas><div class="donut-label" id="ring-week-pct">0%</div></div><div><div class="stat-value" id="stat-week-pct">0%</div><div style="font-size:11px;color:var(--muted)">выполнение</div></div></div></div>
-      <div class="stat-card"><div class="stat-label">В работе</div><div class="stat-value" id="stat-tasks-pending">0</div><div class="stat-sub">задач</div></div>
-      <div class="stat-card"><div class="stat-label">Выполнено</div><div class="stat-value" style="color:var(--green)" id="stat-tasks-done">0</div><div class="stat-sub">задач</div></div>
-    </div>
-    <div class="grid2">
-      <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-weight:700">Привычки</div><button class="btn btn-ghost btn-sm" onclick="showPage('habits',null)">Все →</button></div><div id="dash-habits"><div class="loader">...</div></div></div>
-      <div class="card"><div style="font-weight:700;margin-bottom:14px">Неделя</div><div class="week-grid" id="week-chart"><div class="loader">...</div></div></div>
-    </div>
-    <div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-weight:700">Ближайшие задачи</div><button class="btn btn-ghost btn-sm" onclick="showPage('tasks',null)">Все →</button></div><div id="dash-tasks"><div class="loader">...</div></div></div>
-  </div>
 
-  <!-- HABITS -->
-  <div id="page-habits" class="page">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
-      <div class="section-title" style="margin-bottom:0">Привычки</div>
-      <button class="btn btn-primary btn-sm" onclick="toggleAddHabit()">➕</button>
-    </div>
-    <div id="habit-form" class="add-form" style="display:none">
-      <div class="form-row">
-        <div class="form-group" style="flex:.3"><label class="form-label">Эмодзи</label><input id="h-emoji" value="✅" maxlength="2" style="text-align:center;font-size:22px;padding:8px"></div>
-        <div class="form-group"><label class="form-label">Название</label><input id="h-name" placeholder="Пробежка 30 мин"></div>
-      </div>
-      <div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="addHabit()">Добавить</button><button class="btn btn-ghost" onclick="toggleAddHabit()">Отмена</button></div>
-    </div>
-    <div class="tabs"><div class="tab active" onclick="setHabitsTab('today',this)">Сегодня</div><div class="tab" onclick="setHabitsTab('all',this)">Все</div></div>
-    <div id="habits-list"><div class="loader">...</div></div>
+<!-- DASHBOARD -->
+<div id="page-dashboard" class="page active">
+  <div class="section-title">Сегодня, <span id="today-date">...</span></div>
+  <div class="stats-grid">
+    <div class="stat-card blue"><div class="stat-label">Привычки сегодня</div><div class="ring-wrap"><div class="donut-wrap"><canvas id="ring-today" width="68" height="68" class="ring-canvas"></canvas><div class="donut-label" id="ring-today-pct">0%</div></div><div><div class="stat-value" id="sh-done">0</div><div class="stat-sub">из <span id="sh-total">0</span></div></div></div></div>
+    <div class="stat-card green"><div class="stat-label">Прогресс недели</div><div class="ring-wrap"><div class="donut-wrap"><canvas id="ring-week" width="68" height="68" class="ring-canvas"></canvas><div class="donut-label" id="ring-week-pct">0%</div></div><div><div class="stat-value" id="sw-pct">0%</div><div class="stat-sub">выполнение</div></div></div></div>
+    <div class="stat-card orange"><div class="stat-label">Активные задачи</div><div class="stat-value" id="st-pend">0</div><div class="stat-sub">в работе</div></div>
+    <div class="stat-card red"><div class="stat-label">Выполнено</div><div class="stat-value" style="color:var(--gr)" id="st-done">0</div><div class="stat-sub">задач всего</div></div>
   </div>
-
-  <!-- TASKS -->
-  <div id="page-tasks" class="page">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <div class="section-title" style="margin-bottom:0">Задачи</div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <div class="tabs" style="margin-bottom:0">
-          <div class="tab active" onclick="setTasksView('kanban',this)">📅</div>
-          <div class="tab" onclick="setTasksView('list',this)">☰</div>
-        </div>
-        <button class="btn btn-primary btn-sm desktop-only" onclick="openAddTask()">➕</button>
-      </div>
-    </div>
-    <div id="task-form" class="add-form" style="display:none">
-      <div class="form-row">
-        <div class="form-group" style="flex:.25"><label class="form-label">Эмодзи</label><input id="t-emoji" value="📌" maxlength="2" style="text-align:center;font-size:20px;padding:8px"></div>
-        <div class="form-group"><label class="form-label">Название</label><input id="t-title" placeholder="Что нужно сделать?"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Дедлайн</label><input id="t-deadline" type="date"></div>
-        <div class="form-group"><label class="form-label">⏰ Время</label><input id="t-time" type="time"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Приоритет</label><select id="t-priority"><option value="urgent">🔴 Срочно</option><option value="high">🟠 Высокий</option><option value="medium" selected>🟡 Средний</option><option value="low">🟢 Низкий</option></select></div>
-        <div class="form-group"><label class="form-label">Категория</label><select id="t-category"><option value="work">💼 Работа</option><option value="personal" selected>👤 Личное</option><option value="health">🏃 Здоровье</option><option value="learning">📚 Учёба</option></select></div>
-      </div>
-      <div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="addTask()">Добавить</button><button class="btn btn-ghost" onclick="closeAddTask()">Отмена</button></div>
-    </div>
-    <div id="kanban-view"></div>
-    <div id="tasks-list" style="display:none"></div>
+  <div class="grid2">
+    <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><b>🎯 Привычки</b><button class="btn btn-g btn-sm" onclick="go('habits',null)">Все →</button></div><div id="dash-habits"><div class="loader">...</div></div></div>
+    <div class="card"><b>📅 Неделя</b><div class="wg" id="week-chart" style="margin-top:14px"><div class="loader">...</div></div></div>
   </div>
+  <div class="card" style="margin-top:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><b>📋 Ближайшие задачи</b><button class="btn btn-g btn-sm" onclick="go('tasks',null)">Все →</button></div>
+    <div id="dash-tasks"><div class="loader">...</div></div>
+  </div>
+</div>
 
-  <!-- SETTINGS -->
-  <div id="page-settings" class="page">
-    <div class="section-title">Настройки</div>
+<!-- TASKS -->
+<div id="page-tasks" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div class="section-title" style="margin-bottom:0">📋 Задачи</div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <div class="tabs" style="margin-bottom:0">
+        <div class="tab active" onclick="setTV('kanban',this)">📅 Канбан</div>
+        <div class="tab" onclick="setTV('list',this)">☰ Список</div>
+      </div>
+      <button class="btn btn-p btn-sm" onclick="openAddTask()">➕ Добавить</button>
+    </div>
+  </div>
+  <div id="task-form" class="add-form" style="display:none">
+    <div class="fr">
+      <div class="fg" style="flex:.25"><label class="fl">Эмодзи</label><input id="te" value="📌" maxlength="2" style="text-align:center;font-size:20px;padding:8px"></div>
+      <div class="fg"><label class="fl">Название задачи</label><input id="tt" placeholder="Что нужно сделать?"></div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Дедлайн</label><input id="td" type="date"></div>
+      <div class="fg"><label class="fl">⏰ Время</label><input id="ttm" type="time"></div>
+      <div class="fg"><label class="fl">Приоритет</label><select id="tp"><option value="urgent">🔴 Срочно</option><option value="high">🟠 Высокий</option><option value="medium" selected>🟡 Средний</option><option value="low">🟢 Низкий</option></select></div>
+      <div class="fg"><label class="fl">Категория</label><select id="tc"><option value="work">💼 Работа</option><option value="personal" selected>👤 Личное</option><option value="health">🏃 Здоровье</option><option value="learning">📚 Учёба</option></select></div>
+    </div>
+    <div style="display:flex;gap:8px"><button class="btn btn-p" onclick="addTask()">Добавить</button><button class="btn btn-g" onclick="closeAddTask()">Отмена</button></div>
+  </div>
+  <div id="kanban-view"></div>
+  <div id="tasks-list" style="display:none"></div>
+</div>
+
+<!-- HABITS -->
+<div id="page-habits" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div class="section-title" style="margin-bottom:0">🎯 Привычки</div>
+    <button class="btn btn-p btn-sm" onclick="toggleAH()">➕ Добавить</button>
+  </div>
+  <div id="habit-form" class="add-form" style="display:none">
+    <div class="fr">
+      <div class="fg" style="flex:.3"><label class="fl">Эмодзи</label><input id="he" value="✅" maxlength="2" style="text-align:center;font-size:20px;padding:8px"></div>
+      <div class="fg"><label class="fl">Название</label><input id="hn" placeholder="Бег 30 минут" onkeydown="if(event.key==='Enter')addHabit()"></div>
+    </div>
+    <p style="font-size:11px;color:var(--mt);margin-bottom:10px">💡 Идеи: 🏃 Пробежка, 💊 Витамины, 📚 Чтение, 💧 Вода 2л, 🧘 Медитация, 📝 Дневник</p>
+    <div style="display:flex;gap:8px"><button class="btn btn-p" onclick="addHabit()">Добавить</button><button class="btn btn-g" onclick="toggleAH()">Отмена</button></div>
+  </div>
+  <div class="tabs"><div class="tab active" onclick="setHT('today',this)">Сегодня</div><div class="tab" onclick="setHT('all',this)">Все</div></div>
+  <div id="habits-list"><div class="loader">...</div></div>
+</div>
+
+<!-- ANALYTICS -->
+<div id="page-analytics" class="page">
+  <div class="section-title">📈 Аналитика</div>
+  <div class="grid2" style="margin-bottom:16px">
     <div class="card">
-      <p style="color:var(--muted);font-size:14px;margin-bottom:14px">Ваш токен доступа. Открывайте дашборд по ссылке из /web в боте.</p>
-      <div style="background:var(--surface2);border-radius:10px;padding:12px;font-size:12px;font-family:monospace;word-break:break-all;color:var(--accent2)" id="token-display">...</div>
+      <b style="display:block;margin-bottom:14px">🔥 Тепловая карта привычек</b>
+      <div id="heatmap-months" class="hm-months"></div>
+      <div class="heatmap" id="heatmap"></div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:10px;font-size:11px;color:var(--mt)">
+        Меньше <div class="hm-day"></div><div class="hm-day l1"></div><div class="hm-day l2"></div><div class="hm-day l3"></div><div class="hm-day l4"></div> Больше
+      </div>
+    </div>
+    <div class="card">
+      <b style="display:block;margin-bottom:14px">📊 Выполнение по неделям</b>
+      <canvas id="chart-weeks" height="160"></canvas>
     </div>
   </div>
+  <div class="grid2">
+    <div class="card">
+      <b style="display:block;margin-bottom:14px">🏆 Топ привычек</b>
+      <div id="top-habits"><div class="loader">...</div></div>
+    </div>
+    <div class="card">
+      <b style="display:block;margin-bottom:14px">📌 Задачи по категориям</b>
+      <canvas id="chart-cats" height="180"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- AI CHAT -->
+<div id="page-ai" class="page">
+  <div class="section-title">🤖 ИИ-ассистент</div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="chat-msgs" id="chat-msgs">
+      <div class="msg msg-ai">
+        👋 Привет! Я твой ИИ-ассистент в Planify.<br><br>
+        Могу помочь с:<br>
+        • Составить план дня/недели<br>
+        • Подобрать привычки под твои цели<br>
+        • Приоритизировать задачи<br>
+        • Дать советы по продуктивности<br><br>
+        О чём поговорим?
+        <div class="chips">
+          <div class="chip" onclick="aiSend('Составь план на сегодня')">📅 План на день</div>
+          <div class="chip" onclick="aiSend('Какие привычки добавить для здоровья?')">💪 Привычки</div>
+          <div class="chip" onclick="aiSend('Как улучшить продуктивность?')">⚡ Продуктивность</div>
+          <div class="chip" onclick="aiSend('Расставь мои задачи по приоритетам')">🎯 Приоритеты</div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-input-wrap" style="padding:12px">
+      <textarea class="chat-input" id="chat-input" placeholder="Спроси что-нибудь..." rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();aiSend();}"></textarea>
+      <button class="chat-send" onclick="aiSend()">↑</button>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div id="page-settings" class="page">
+  <div class="section-title">⚙️ Настройки</div>
+  <div style="display:flex;flex-direction:column;gap:14px;max-width:520px">
+    <div class="card">
+      <b style="display:block;margin-bottom:12px">🔑 Доступ</b>
+      <p style="color:var(--mt);font-size:13px;margin-bottom:10px">Ваш токен для дашборда. Открывайте через команду /web в боте.</p>
+      <div style="background:var(--s2);border-radius:8px;padding:10px;font-size:12px;font-family:monospace;word-break:break-all;color:var(--ac2)" id="token-display">...</div>
+    </div>
+    <div class="card">
+      <b style="display:block;margin-bottom:12px">📞 Голосовые звонки</b>
+      <p style="color:var(--mt);font-size:13px;margin-bottom:10px">Бот звонит за час до важных задач. Установите номер командой /setphone в боте.</p>
+      <div style="background:var(--s2);border-radius:8px;padding:10px;font-size:13px" id="phone-display">Номер не установлен</div>
+    </div>
+    <div class="card">
+      <b style="display:block;margin-bottom:12px">💡 Идеи для развития</b>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--mt)">
+        <div>🗓 <b style="color:var(--tx)">Синхронизация с Google Calendar</b> — импорт/экспорт событий</div>
+        <div>🏆 <b style="color:var(--tx)">Система достижений</b> — бейджи за стрики и выполненные цели</div>
+        <div>👥 <b style="color:var(--tx)">Совместные задачи</b> — делиться задачами с командой</div>
+        <div>📊 <b style="color:var(--tx)">Экспорт отчётов</b> — PDF/Excel отчёты по продуктивности</div>
+        <div>🎯 <b style="color:var(--tx)">OKR/цели</b> — долгосрочное планирование по кварталам</div>
+        <div>🧘 <b style="color:var(--tx)">Трекер настроения</b> — как самочувствие влияет на продуктивность</div>
+        <div>⏱ <b style="color:var(--tx)">Таймер Помодоро</b> — встроенный таймер для задач</div>
+        <div>🔔 <b style="color:var(--tx)">Push-уведомления</b> — нативные уведомления в браузере</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 </main>
 
-<!-- Habit Settings Modal -->
-<div id="habit-modal" class="modal-overlay">
+<!-- Edit Task Modal -->
+<div id="edit-mo" class="mo">
   <div class="modal">
-    <div class="modal-handle"></div>
-    <div class="modal-title" id="habit-modal-title">⚙️ Настройки привычки</div>
-    <div style="background:var(--surface2);border-radius:12px;padding:14px;margin-bottom:16px;display:flex;gap:16px">
-      <div style="text-align:center;flex:1"><div style="font-size:24px;font-weight:800;color:var(--orange)" id="hm-streak">0</div><div style="font-size:11px;color:var(--muted)">🔥 Стрик</div></div>
-      <div style="text-align:center;flex:1"><div style="font-size:24px;font-weight:800;color:var(--yellow)" id="hm-best">0</div><div style="font-size:11px;color:var(--muted)">🏆 Рекорд</div></div>
-    </div>
-    <div class="form-group" style="margin-bottom:14px">
-      <label class="form-label">⏰ Время напоминания</label>
-      <input id="hm-time" type="time" placeholder="08:00">
-    </div>
-    <div class="form-group" style="margin-bottom:16px">
-      <label class="form-label">📅 Дни недели</label>
-      <div style="display:flex;gap:6px;flex-wrap:wrap" id="hm-days">
-        <button class="day-btn active" data-day="0" onclick="toggleDay(this)">Пн</button>
-        <button class="day-btn active" data-day="1" onclick="toggleDay(this)">Вт</button>
-        <button class="day-btn active" data-day="2" onclick="toggleDay(this)">Ср</button>
-        <button class="day-btn active" data-day="3" onclick="toggleDay(this)">Чт</button>
-        <button class="day-btn active" data-day="4" onclick="toggleDay(this)">Пт</button>
-        <button class="day-btn" data-day="5" onclick="toggleDay(this)">Сб</button>
-        <button class="day-btn" data-day="6" onclick="toggleDay(this)">Вс</button>
-      </div>
-    </div>
-    <div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="saveHabitSettings()" style="flex:1">💾 Сохранить</button><button class="btn btn-ghost" onclick="closeHabitModal()">✕</button></div>
+    <div class="mhandle"></div>
+    <div class="mtitle">✏️ Редактировать задачу</div>
+    <div class="fg" style="margin-bottom:12px"><label class="fl">Название</label><input id="em-title"></div>
+    <div class="fr"><div class="fg"><label class="fl">Дедлайн</label><input id="em-dl" type="date"></div><div class="fg"><label class="fl">⏰ Время</label><input id="em-time" type="time"></div></div>
+    <div class="fr"><div class="fg"><label class="fl">Приоритет</label><select id="em-pr"><option value="urgent">🔴 Срочно</option><option value="high">🟠 Высокий</option><option value="medium">🟡 Средний</option><option value="low">🟢 Низкий</option></select></div><div class="fg"><label class="fl">Категория</label><select id="em-cat"><option value="work">💼 Работа</option><option value="personal">👤 Личное</option><option value="health">🏃 Здоровье</option><option value="learning">📚 Учёба</option></select></div></div>
+    <div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-p" onclick="saveEdit()" style="flex:1">💾 Сохранить</button><button class="btn btn-g" onclick="closeEdit()">✕</button></div>
   </div>
 </div>
 
-<!-- Edit Modal -->
-<div id="edit-modal" class="modal-overlay">
+<!-- Habit Settings Modal -->
+<div id="habit-mo" class="mo">
   <div class="modal">
-    <div class="modal-handle"></div>
-    <div class="modal-title">✏️ Редактировать</div>
-    <div class="form-group" style="margin-bottom:12px"><label class="form-label">Название</label><input id="edit-title"></div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Дедлайн</label><input id="edit-deadline" type="date"></div>
-      <div class="form-group"><label class="form-label">⏰ Время</label><input id="edit-time" type="time"></div>
+    <div class="mhandle"></div>
+    <div class="mtitle" id="hm-title">⚙️ Настройки привычки</div>
+    <div style="display:flex;gap:12px;margin-bottom:14px">
+      <div style="flex:1;background:var(--s2);border-radius:10px;padding:12px;text-align:center"><div style="font-size:22px;font-weight:800;color:var(--or)" id="hm-streak">0</div><div style="font-size:10px;color:var(--mt)">🔥 Стрик</div></div>
+      <div style="flex:1;background:var(--s2);border-radius:10px;padding:12px;text-align:center"><div style="font-size:22px;font-weight:800;color:var(--yw)" id="hm-best">0</div><div style="font-size:10px;color:var(--mt)">🏆 Рекорд</div></div>
+      <div style="flex:1;background:var(--s2);border-radius:10px;padding:12px;text-align:center"><div style="font-size:22px;font-weight:800;color:var(--ac2)" id="hm-total">0</div><div style="font-size:10px;color:var(--mt)">✅ Всего</div></div>
     </div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Приоритет</label><select id="edit-priority"><option value="urgent">🔴 Срочно</option><option value="high">🟠 Высокий</option><option value="medium">🟡 Средний</option><option value="low">🟢 Низкий</option></select></div>
-      <div class="form-group"><label class="form-label">Категория</label><select id="edit-category"><option value="work">💼 Работа</option><option value="personal">👤 Личное</option><option value="health">🏃 Здоровье</option><option value="learning">📚 Учёба</option></select></div>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:4px"><button class="btn btn-primary" onclick="saveEditTask()" style="flex:1">💾 Сохранить</button><button class="btn btn-ghost" onclick="closeEditModal()">✕</button></div>
+    <div class="fg" style="margin-bottom:12px"><label class="fl">⏰ Напоминание</label><input id="hm-time" type="time"></div>
+    <div class="fg" style="margin-bottom:14px"><label class="fl">📅 Дни</label><div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px" id="hm-days">
+      <button class="day-btn active" data-d="0">Пн</button><button class="day-btn active" data-d="1">Вт</button><button class="day-btn active" data-d="2">Ср</button><button class="day-btn active" data-d="3">Чт</button><button class="day-btn active" data-d="4">Пт</button><button class="day-btn" data-d="5">Сб</button><button class="day-btn" data-d="6">Вс</button>
+    </div></div>
+    <div style="display:flex;gap:8px"><button class="btn btn-p" onclick="saveHS()" style="flex:1">💾 Сохранить</button><button class="btn btn-g" onclick="closeHM()">✕</button></div>
   </div>
 </div>
+
+<style>
+.day-btn{padding:5px 9px;border-radius:7px;border:1px solid var(--b);background:var(--s2);color:var(--mt);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;}
+.day-btn.active{background:var(--ac);border-color:var(--ac);color:white;}
+</style>
 
 <div class="toast" id="toast"></div>
+<div class="sel-hint" id="sel-hint" style="display:none">👆 Нажмите на колонку для переноса</div>
 
 <script>
 const params=new URLSearchParams(location.search);
-let TOKEN=params.get('token')||localStorage.getItem('planify_token');
-if(TOKEN)localStorage.setItem('planify_token',TOKEN);
-const today=new Date().toISOString().slice(0,10);
-let habitsTab='today',tasksView='kanban',tasksTab='pending';
-let allTasks=[],editingTaskId=null,draggedTaskId=null,kanbanWeekOffset=0,selectedTaskId=null;
-const isMobile=()=>window.innerWidth<=768;
+let TOKEN=params.get('token')||localStorage.getItem('pt');
+if(TOKEN)localStorage.setItem('pt',TOKEN);
+const TODAY=new Date().toISOString().slice(0,10);
+let allTasks=[],allHabits=[],habTab='today',taskView='kanban',taskTab='pending';
+let editId=null,habitEditId=null,dragId=null,selId=null,kwOff=0;
+let weekChart=null,catChart=null;
+const mob=()=>window.innerWidth<=768;
 
-function toast(msg,ok=true){
-  const el=document.getElementById('toast');
-  el.textContent=(ok?'✅ ':'❌ ')+msg;
-  el.classList.add('show');
-  setTimeout(()=>el.classList.remove('show'),2200);
-}
-function api(path,opts={}){const sep=path.includes('?')?'&':'?';return fetch(`${path}${sep}token=${TOKEN}`,opts).then(r=>r.json());}
-function fmtDays(d){if(d===null||d===undefined)return'';if(d<0)return`<span class="deadline-tag overdue">⚠️</span>`;if(d===0)return`<span class="deadline-tag today">Сегодня</span>`;return`<span class="deadline-tag">+${d}д</span>`;}
-const PB={urgent:'<span class="badge badge-urgent">🔴</span>',high:'<span class="badge badge-high">🟠</span>',medium:'<span class="badge badge-medium">🟡</span>',low:'<span class="badge badge-low">🟢</span>'};
-const CB={work:'<span class="badge badge-work">💼</span>',personal:'<span class="badge badge-personal">👤</span>',health:'<span class="badge badge-health">🏃</span>',learning:'<span class="badge badge-learning">📚</span>'};
+// ── Utils ──────────────────────────────────────────────────────────────────
+function toast(msg,ok=true){const el=document.getElementById('toast');el.textContent=(ok?'✅ ':'❌ ')+msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200);}
+function api(p,o={}){const s=p.includes('?')?'&':'?';return fetch(`${p}${s}token=${TOKEN}`,o).then(r=>r.json());}
+function fmtD(d){if(d===null||d===undefined)return'';if(d<0)return`<span class="dt ov">⚠️</span>`;if(d===0)return`<span class="dt td">Сегодня</span>`;return`<span class="dt">+${d}д</span>`;}
+const PB={urgent:'<span class="badge bu">🔴</span>',high:'<span class="badge bh">🟠</span>',medium:'<span class="badge bm">🟡</span>',low:'<span class="badge bl">🟢</span>'};
+const CB={work:'<span class="badge bw">💼</span>',personal:'<span class="badge bp">👤</span>',health:'<span class="badge bhe">🏃</span>',learning:'<span class="badge ble">📚</span>'};
 const PL={urgent:'🔴',high:'🟠',medium:'🟡',low:'🟢'};
 const RD=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
 const RM=['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
 
-function showPage(name,navEl){
+// ── Nav ────────────────────────────────────────────────────────────────────
+function go(name,el){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
-  // Desktop nav
   document.querySelectorAll('.sidebar .nav-item').forEach(n=>n.classList.remove('active'));
-  if(navEl&&navEl.closest('.sidebar'))navEl.classList.add('active');
-  // Mobile nav
-  document.querySelectorAll('.bnav-item').forEach(n=>{n.classList.toggle('active',n.dataset.page===name);});
-  // FAB visibility
-  const fab=document.getElementById('fab-btn');
+  if(el&&el.closest('.sidebar'))el.classList.add('active');
+  document.querySelectorAll('.bni').forEach(n=>n.classList.toggle('active',n.dataset.p===name));
+  const fab=document.getElementById('fab');
   fab.style.display=(name==='tasks'||name==='habits')?'flex':'none';
-  if(name==='dashboard')loadDashboard();
+  clearSel();
+  if(name==='dashboard')loadDash();
   if(name==='habits')loadHabits();
   if(name==='tasks'){document.getElementById('kanban-view').style.display='block';document.getElementById('tasks-list').style.display='none';loadTasks();}
-  if(name==='settings')document.getElementById('token-display').textContent=TOKEN||'не авторизован';
+  if(name==='analytics')loadAnalytics();
+  if(name==='settings'){document.getElementById('token-display').textContent=TOKEN||'нет';loadPhone();}
 }
-
 function onFab(){
-  const active=document.querySelector('.page.active')?.id;
-  if(active==='page-tasks')openAddTask();
-  if(active==='page-habits')toggleAddHabit();
+  const a=document.querySelector('.page.active')?.id;
+  if(a==='page-tasks')openAddTask();
+  if(a==='page-habits')toggleAH();
 }
-function openAddTask(){document.getElementById('task-form').style.display='block';document.getElementById('t-title').focus();}
-function closeAddTask(){document.getElementById('task-form').style.display='none';}
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
-async function loadDashboard(){
+async function loadDash(){
   document.getElementById('today-date').textContent=new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long',weekday:'short'});
-  const[stats,weekData,habits,tasks]=await Promise.all([api('/api/stats'),api('/api/stats/week'),api(`/api/habits?date_str=${today}`),api('/api/tasks?completed=false')]);
-  document.getElementById('stat-habits-done').textContent=stats.habits_done_today;
-  document.getElementById('stat-habits-total').textContent=stats.habits_total;
-  document.getElementById('stat-tasks-pending').textContent=stats.tasks_pending;
-  document.getElementById('stat-tasks-done').textContent=stats.tasks_done;
+  const[stats,wd,habits,tasks]=await Promise.all([api('/api/stats'),api('/api/stats/week'),api(`/api/habits?date_str=${TODAY}`),api('/api/tasks?completed=false')]);
+  document.getElementById('sh-done').textContent=stats.habits_done_today;
+  document.getElementById('sh-total').textContent=stats.habits_total;
+  document.getElementById('st-pend').textContent=stats.tasks_pending;
+  document.getElementById('st-done').textContent=stats.tasks_done;
   document.getElementById('ring-today-pct').textContent=stats.today_pct+'%';
   document.getElementById('ring-week-pct').textContent=stats.week_pct+'%';
-  document.getElementById('stat-week-pct').textContent=stats.week_pct+'%';
+  document.getElementById('sw-pct').textContent=stats.week_pct+'%';
   drawRing('ring-today',stats.today_pct);drawRing('ring-week',stats.week_pct);
-  document.getElementById('week-chart').innerHTML=weekData.map(d=>`<div class="week-day"><div class="week-day-name">${d.weekday}</div><div class="week-day-bar"><div class="week-day-fill" style="height:${d.pct}%"></div></div><div class="week-day-pct" style="color:${d.pct>=80?'var(--green)':d.pct>=50?'var(--yellow)':'var(--muted)'}">${d.pct}%</div></div>`).join('');
-  document.getElementById('dash-habits').innerHTML=habits.length?habits.slice(0,5).map(h=>`<div class="habit-item ${h.done_today?'done':''}" onclick="toggleHabit('${h.id}',this)"><div class="habit-check">${h.done_today?'✓':''}</div><div class="habit-name">${h.emoji||'✅'} ${h.name}</div></div>`).join(''):'<div class="empty"><div class="empty-icon">🎯</div>Нет привычек</div>';
-  const s=tasks.sort((a,b)=>{const po={urgent:0,high:1,medium:2,low:3};return(po[a.priority]||2)-(po[b.priority]||2);});
-  document.getElementById('dash-tasks').innerHTML=s.length?s.slice(0,4).map(t=>`<div class="task-item"><div class="task-check" onclick="quickDone('${t.id}',this)">${t.completed?'✓':''}</div><div class="task-body"><div class="task-title">${t.emoji||'📌'} ${t.title}</div><div class="task-meta">${PB[t.priority]||''} ${fmtDays(t.days_left)} ${t.reminder_time?`<span class="time-tag">⏰ ${t.reminder_time}</span>`:''}</div></div></div>`).join(''):'<div class="empty"><div class="empty-icon">✅</div>Все выполнено!</div>';
+  document.getElementById('week-chart').innerHTML=wd.map(d=>`<div class="wd"><div class="wdn">${d.weekday}</div><div class="wdb"><div class="wdf" style="height:${d.pct}%"></div></div><div class="wdp" style="color:${d.pct>=80?'var(--gr)':d.pct>=50?'var(--yw)':'var(--mt)'}">${d.pct}%</div></div>`).join('');
+  document.getElementById('dash-habits').innerHTML=habits.length?habits.slice(0,5).map(h=>`<div class="habit-item ${h.done_today?'done':''}" onclick="tgHabit('${h.id}',this)"><div class="habit-check">${h.done_today?'✓':''}</div><div class="habit-name">${h.emoji||'✅'} ${h.name}</div>${(h.current_streak||0)>1?`<span class="streak-badge">🔥${h.current_streak}</span>`:''}</div>`).join(''):'<div class="empty"><div class="empty-icon">🎯</div>Нет привычек</div>';
+  const st=tasks.sort((a,b)=>{const p={urgent:0,high:1,medium:2,low:3};return(p[a.priority]||2)-(p[b.priority]||2);});
+  document.getElementById('dash-tasks').innerHTML=st.length?st.slice(0,4).map(t=>`<div class="task-item"><div class="task-check" onclick="qDone('${t.id}')">${t.completed?'✓':''}</div><div class="task-body"><div class="task-title">${t.emoji||'📌'} ${t.title}</div><div class="task-meta">${PB[t.priority]||''} ${fmtD(t.days_left)} ${t.reminder_time?`<span class="tt">⏰${t.reminder_time}</span>`:''}</div></div></div>`).join(''):'<div class="empty"><div class="empty-icon">✅</div>Всё выполнено!</div>';
 }
-
-function drawRing(id,pct){const c=document.getElementById(id);const ex=Chart.getChart(c);if(ex)ex.destroy();const col=pct>=80?'#34d399':pct>=50?'#fbbf24':'#7c6ff7';new Chart(c,{type:'doughnut',data:{datasets:[{data:[pct,100-pct],backgroundColor:[col,'#2d2d3d'],borderWidth:0,borderRadius:4}]},options:{cutout:'72%',plugins:{legend:{display:false},tooltip:{enabled:false}},animation:{duration:700}}});}
-
-async function quickDone(id,el){await api(`/api/tasks/${id}/toggle`,{method:'POST'});loadDashboard();}
+async function qDone(id){await api(`/api/tasks/${id}/toggle`,{method:'POST'});loadDash();}
+function drawRing(id,pct){const c=document.getElementById(id);const ex=Chart.getChart(c);if(ex)ex.destroy();const col=pct>=80?'#34d399':pct>=50?'#fbbf24':'#7c6ff7';new Chart(c,{type:'doughnut',data:{datasets:[{data:[pct,100-pct],backgroundColor:[col,'#2d2d3d'],borderWidth:0,borderRadius:3}]},options:{cutout:'72%',plugins:{legend:{display:false},tooltip:{enabled:false}},animation:{duration:600}}});}
 
 // ── Habits ─────────────────────────────────────────────────────────────────
 async function loadHabits(){
-  const habits=await api(habitsTab==='today'?`/api/habits?date_str=${today}`:'/api/habits');
-  window._habits = habits;
-  document.getElementById('habits-list').innerHTML=habits.length?habits.map(h=>{
-    const streak=h.current_streak||0;
-    const best=h.best_streak||0;
-    const streakBadge=streak>1?`<span style="font-size:11px;color:var(--orange);font-weight:700">🔥${streak}</span>`:'';
-    const remBadge=h.reminder_time?`<span class="time-tag" style="font-size:10px">⏰${h.reminder_time}</span>`:'';
-    return`<div class="habit-item ${h.done_today?'done':''}" id="habit-${h.id}">
-      <div class="habit-check" onclick="toggleHabit('${h.id}',this.closest('.habit-item'))">${h.done_today?'✓':''}</div>
-      <div class="habit-name" onclick="toggleHabit('${h.id}',this.closest('.habit-item'))">${h.emoji||'✅'} ${h.name}</div>
-      <div style="display:flex;gap:4px;align-items:center">${streakBadge}${remBadge}</div>
-      <button class="btn-icon" onclick="openHabitSettings('${h.id}','${(h.name||'').replace(/'/g,"\'")}','${h.reminder_time||''}','${h.reminder_days||'all'}',${best})" style="font-size:13px">⚙️</button>
-      <div class="habit-delete" onclick="deleteHabit('${h.id}')">🗑</div>
-    </div>`;}).join(''):'<div class="empty"><div class="empty-icon">🎯</div>Добавьте привычку!</div>';
+  const h=await api(habTab==='today'?`/api/habits?date_str=${TODAY}`:'/api/habits');
+  allHabits=h;
+  document.getElementById('habits-list').innerHTML=h.length?h.map(hab=>{
+    const streak=hab.current_streak||0;
+    return`<div class="habit-item ${hab.done_today?'done':''}" id="h-${hab.id}">
+      <div class="habit-check" onclick="tgHabit('${hab.id}',this.closest('.habit-item'))">${hab.done_today?'✓':''}</div>
+      <div class="habit-name" onclick="tgHabit('${hab.id}',this.closest('.habit-item'))">${hab.emoji||'✅'} ${hab.name}</div>
+      ${streak>1?`<span class="streak-badge">🔥${streak}</span>`:''}
+      ${hab.reminder_time?`<span class="tt">⏰${hab.reminder_time}</span>`:''}
+      <button class="bti" onclick="openHS('${hab.id}')">⚙️</button>
+      <div class="habit-del" onclick="delHabit('${hab.id}')">🗑</div>
+    </div>`;}).join(''):'<div class="empty"><div class="empty-icon">🎯</div>Добавьте первую привычку!<br><br><div class="chips" style="justify-content:center"><div class="chip" onclick="addHabitQ(\'🏃\',\'Пробежка\')">🏃 Пробежка</div><div class="chip" onclick="addHabitQ(\'💧\',\'Вода 2л\')">💧 Вода</div><div class="chip" onclick="addHabitQ(\'📚\',\'Чтение\')">📚 Чтение</div><div class="chip" onclick="addHabitQ(\'🧘\',\'Медитация\')">🧘 Медитация</div></div></div>';
 }
-async function toggleHabit(id,el){const res=await api(`/api/habits/${id}/toggle`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:today})});el.classList.toggle('done',res.done);el.querySelector('.habit-check').textContent=res.done?'✓':'';}
-async function addHabit(){const name=document.getElementById('h-name').value.trim();if(!name)return toast('Введите название',false);await api('/api/habits',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,emoji:document.getElementById('h-emoji').value||'✅',frequency:'daily'})});document.getElementById('h-name').value='';toggleAddHabit();toast('Привычка добавлена!');loadHabits();}
-async function deleteHabit(id){if(!confirm('Удалить?'))return;await api(`/api/habits/${id}`,{method:'DELETE'});toast('Удалено');loadHabits();}
-function toggleAddHabit(){const f=document.getElementById('habit-form');f.style.display=f.style.display==='none'?'block':'none';if(f.style.display==='block')document.getElementById('h-name').focus();}
-function setHabitsTab(tab,el){habitsTab=tab;document.querySelectorAll('#page-habits .tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');loadHabits();}
+async function tgHabit(id,el){const res=await api(`/api/habits/${id}/toggle`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:TODAY})});el.classList.toggle('done',res.done);el.querySelector('.habit-check').textContent=res.done?'✓':'';}
+async function addHabit(){const n=document.getElementById('hn').value.trim();if(!n)return toast('Введите название',false);const e=document.getElementById('he').value||'✅';await api('/api/habits',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,emoji:e,frequency:'daily'})});document.getElementById('hn').value='';toggleAH();toast('Привычка добавлена!');loadHabits();}
+async function addHabitQ(e,n){await api('/api/habits',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,emoji:e,frequency:'daily'})});toast('Привычка добавлена!');loadHabits();}
+async function delHabit(id){if(!confirm('Удалить?'))return;await api(`/api/habits/${id}`,{method:'DELETE'});toast('Удалено');loadHabits();}
+function toggleAH(){const f=document.getElementById('habit-form');f.style.display=f.style.display==='none'?'block':'none';if(f.style.display==='block')document.getElementById('hn').focus();}
+function setHT(t,el){habTab=t;document.querySelectorAll('#page-habits .tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');loadHabits();}
+
+// Habit Settings
+function openHS(id){
+  habitEditId=id;
+  const h=allHabits.find(x=>x.id===id);
+  if(!h)return;
+  document.getElementById('hm-title').textContent=`⚙️ ${h.emoji||''} ${h.name}`;
+  document.getElementById('hm-streak').textContent=h.current_streak||0;
+  document.getElementById('hm-best').textContent=h.best_streak||0;
+  document.getElementById('hm-total').textContent=0;
+  document.getElementById('hm-time').value=h.reminder_time||'';
+  const days=(h.reminder_days==='all'||!h.reminder_days)?[0,1,2,3,4,5,6]:(h.reminder_days||'').split(',').map(Number);
+  document.querySelectorAll('.day-btn').forEach(b=>b.classList.toggle('active',days.includes(parseInt(b.dataset.d))));
+  document.querySelectorAll('.day-btn').forEach(b=>b.onclick=()=>b.classList.toggle('active'));
+  document.getElementById('habit-mo').classList.add('open');
+}
+function closeHM(){document.getElementById('habit-mo').classList.remove('open');habitEditId=null;}
+async function saveHS(){
+  if(!habitEditId)return;
+  const time=document.getElementById('hm-time').value||null;
+  const days=[...document.querySelectorAll('.day-btn.active')].map(b=>b.dataset.d).join(',');
+  const rd=days==='0,1,2,3,4,5,6'?'all':days;
+  await api(`/api/habits/${habitEditId}/settings`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reminder_time:time,reminder_days:rd})});
+  closeHM();toast('Сохранено!');loadHabits();
+}
 
 // ── Tasks ──────────────────────────────────────────────────────────────────
 async function loadTasks(){
   const[p,d]=await Promise.all([api('/api/tasks?completed=false'),api('/api/tasks?completed=true')]);
   allTasks=[...p,...d];
-  setTimeout(()=>{if(tasksView==='kanban')renderKanban();else renderList();},30);
+  setTimeout(()=>{if(taskView==='kanban')renderKanban();else renderList();},30);
 }
-
-function setTasksView(view,el){
-  tasksView=view;
-  document.querySelectorAll('#page-tasks .tabs .tab').forEach(t=>t.classList.remove('active'));
-  el.classList.add('active');
-  document.getElementById('kanban-view').style.display=view==='kanban'?'block':'none';
-  document.getElementById('tasks-list').style.display=view==='list'?'block':'none';
-  if(view==='kanban')renderKanban();else renderList();
-}
-
+function setTV(v,el){taskView=v;document.querySelectorAll('#page-tasks .tabs .tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');document.getElementById('kanban-view').style.display=v==='kanban'?'block':'none';document.getElementById('tasks-list').style.display=v==='list'?'block':'none';if(v==='kanban')renderKanban();else renderList();}
 function renderList(){
-  const tasks=allTasks.filter(t=>!t.completed);
-  const el=document.getElementById('tasks-list');
-  if(!tasks.length){el.innerHTML='<div class="empty"><div class="empty-icon">✅</div>Все задачи выполнены!</div>';return;}
-  const s=tasks.sort((a,b)=>{if(a.deadline&&b.deadline)return a.deadline.localeCompare(b.deadline);if(a.deadline)return -1;if(b.deadline)return 1;const po={urgent:0,high:1,medium:2,low:3};return(po[a.priority]||2)-(po[b.priority]||2);});
-  el.innerHTML=s.map(t=>{const st=(t.title||'').replace(/'/g,"\\'");return`<div class="task-item" id="task-${t.id}"><div class="task-check" onclick="doneTask('${t.id}')">${t.completed?'✓':''}</div><div class="task-body"><div class="task-title" onclick="openEdit('${t.id}','${st}','${t.deadline||''}','${t.reminder_time||''}','${t.priority}','${t.category}')">${t.emoji||'📌'} ${t.title}</div><div class="task-meta">${PB[t.priority]||''} ${CB[t.category]||''} ${fmtDays(t.days_left)} ${t.reminder_time?`<span class="time-tag">⏰ ${t.reminder_time}</span>`:''}</div></div><div class="task-actions"><button class="btn-icon" onclick="openEdit('${t.id}','${st}','${t.deadline||''}','${t.reminder_time||''}','${t.priority}','${t.category}')">✏️</button><button class="btn-icon" onclick="deleteTask('${t.id}')">🗑</button></div></div>`;}).join('');
+  const t=allTasks.filter(x=>!x.completed);const el=document.getElementById('tasks-list');
+  if(!t.length){el.innerHTML='<div class="empty"><div class="empty-icon">✅</div>Все задачи выполнены!</div>';return;}
+  const s=t.sort((a,b)=>{if(a.deadline&&b.deadline)return a.deadline.localeCompare(b.deadline);if(a.deadline)return -1;if(b.deadline)return 1;const p={urgent:0,high:1,medium:2,low:3};return(p[a.priority]||2)-(p[b.priority]||2);});
+  el.innerHTML=s.map(t=>{const st=(t.title||'').replace(/'/g,"\\'");return`<div class="task-item" id="ti-${t.id}"><div class="task-check" onclick="doneTask('${t.id}')">${t.completed?'✓':''}</div><div class="task-body"><div class="task-title" onclick="openEdit('${t.id}','${st}','${t.deadline||''}','${t.reminder_time||''}','${t.priority}','${t.category}')">${t.emoji||'📌'} ${t.title}</div><div class="task-meta">${PB[t.priority]||''} ${CB[t.category]||''} ${fmtD(t.days_left)} ${t.reminder_time?`<span class="tt">⏰${t.reminder_time}</span>`:''}</div></div><div class="task-actions"><button class="bti" onclick="openEdit('${t.id}','${st}','${t.deadline||''}','${t.reminder_time||''}','${t.priority}','${t.category}')">✏️</button><button class="bti" onclick="delTask('${t.id}')">🗑</button></div></div>`;}).join('');
 }
 
 // ── Kanban ─────────────────────────────────────────────────────────────────
 function dISO(d){return d.toISOString().slice(0,10);}
-function getWeekDays(){const days=[];const b=new Date();b.setDate(b.getDate()+kanbanWeekOffset*7);const m=new Date(b);m.setDate(m.getDate()-m.getDay()+1);for(let i=0;i<7;i++){const d=new Date(m);d.setDate(d.getDate()+i);days.push(d);}return days;}
+function getWD(){const ds=[];const b=new Date();b.setDate(b.getDate()+kwOff*7);const m=new Date(b);m.setDate(m.getDate()-m.getDay()+1);for(let i=0;i<7;i++){const d=new Date(m);d.setDate(d.getDate()+i);ds.push(d);}return ds;}
 
 function renderKanban(){
-  const days=getWeekDays();
-  const tbd={};const nd=[];
+  const days=getWD();const tbd={};const nd=[];
   allTasks.filter(t=>!t.completed).forEach(t=>{if(!t.deadline){nd.push(t);return;}if(!tbd[t.deadline])tbd[t.deadline]=[];tbd[t.deadline].push(t);});
   const wl=`${days[0].getDate()} ${RM[days[0].getMonth()]} — ${days[6].getDate()} ${RM[days[6].getMonth()]}`;
-  let html=`<div class="kanban-week-nav">
-    <button class="btn btn-ghost btn-sm" onclick="kanbanWeekOffset--;renderKanban()">←</button>
-    <span style="font-weight:600;font-size:13px">${wl}</span>
-    <button class="btn btn-ghost btn-sm" onclick="kanbanWeekOffset++;renderKanban()">→</button>
-    ${kanbanWeekOffset!==0?'<button class="btn btn-ghost btn-sm" onclick="kanbanWeekOffset=0;renderKanban()">Сегодня</button>':''}
-  </div><div class="kanban-scroll"><div class="kanban-board">`;
+  let html=`<div class="kwnav"><button class="btn btn-g btn-sm" onclick="kwOff--;renderKanban()">←</button><span style="font-weight:600;font-size:13px">${wl}</span><button class="btn btn-g btn-sm" onclick="kwOff++;renderKanban()">→</button>${kwOff!==0?'<button class="btn btn-g btn-sm" onclick="kwOff=0;renderKanban()">Сегодня</button>':''}</div><div class="ks"><div class="kb">`;
   days.forEach(day=>{
-    const iso=dISO(day);
-    const isToday=iso===today;
-    const isOver=iso<today;
-    const dt=tbd[iso]||[];
-    html+=`<div class="kanban-col ${isToday?'is-today':''} ${isOver?'is-overdue':''}">
-      <div class="kanban-col-header"><span>${isToday?'⚡ ':''}${RD[day.getDay()]}</span><span class="date-label">${day.getDate()} ${RM[day.getMonth()]}</span></div>
-      <div class="kanban-col-body" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropTask(event,'${iso}')" onclick="tapColumn(event,'${iso}')">
-        ${dt.map(t=>kcard(t)).join('')}
-        <button class="kanban-add-btn" onclick="quickAdd('${iso}')">+ Добавить</button>
-      </div></div>`;
+    const iso=dISO(day);const isT=iso===TODAY;const isO=iso<TODAY;const dt=tbd[iso]||[];
+    html+=`<div class="kc ${isT?'kt':''} ${isO?'ko':''}"><div class="kch"><span>${isT?'⚡ ':''}${RD[day.getDay()]}</span><span class="dl">${day.getDate()} ${RM[day.getMonth()]}</span></div><div class="kcb" ondragover="event.preventDefault();this.classList.add('dov')" ondragleave="this.classList.remove('dov')" ondrop="drop(event,'${iso}')" onclick="tapCol(event,'${iso}')">${dt.map(t=>kcard(t)).join('')}<button class="kadd" onclick="quickAdd('${iso}')">+ Добавить</button></div></div>`;
   });
-  html+=`<div class="kanban-col"><div class="kanban-col-header"><span>📦 Без даты</span><span class="date-label">${nd.length}</span></div><div class="kanban-col-body" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="dropTask(event,null)" onclick="tapColumn(event,null)">${nd.map(t=>kcard(t)).join('')}</div></div>`;
+  html+=`<div class="kc"><div class="kch"><span>📦 Без даты</span><span class="dl">${nd.length}</span></div><div class="kcb" ondragover="event.preventDefault();this.classList.add('dov')" ondragleave="this.classList.remove('dov')" ondrop="drop(event,null)" onclick="tapCol(event,null)">${nd.map(t=>kcard(t)).join('')}</div></div>`;
   html+='</div></div>';
   document.getElementById('kanban-view').innerHTML=html;
 }
 
 function kcard(t){
   const st=(t.title||'').replace(/'/g,"\\'");
-  return`<div class="kanban-card" id="kcard-${t.id}" draggable="true" ondragstart="dragStart(event,'${t.id}')" ondragend="dragEnd()" onclick="tapCard(event,'${t.id}')">
-    <div class="kanban-card-title">${t.emoji||'📌'} ${t.title}</div>
-    <div class="kanban-card-meta">${PL[t.priority]||''} ${t.reminder_time?`<span class="time-tag" style="font-size:10px">⏰ ${t.reminder_time}</span>`:''}</div>
-    <div class="kanban-card-actions">
-      <button class="btn-icon" style="font-size:11px" onclick="openEdit('${t.id}','${st}','${t.deadline||''}','${t.reminder_time||''}','${t.priority}','${t.category}')">✏️</button>
-      <button class="btn-icon" style="font-size:11px;color:var(--green)" onclick="doneTask('${t.id}')">✓</button>
-      <button class="btn-icon" style="font-size:11px" onclick="deleteTask('${t.id}')">🗑</button>
+  const sel=selId===t.id?'sel':'';
+  return`<div class="kcard ${sel}" id="kc-${t.id}" draggable="true" ondragstart="dragStart(event,'${t.id}')" ondragend="dragEnd()" onclick="tapCard(event,'${t.id}')">
+    <div class="kct">${t.emoji||'📌'} ${t.title}</div>
+    <div class="kcm">${PL[t.priority]||''} ${t.reminder_time?`<span class="tt" style="font-size:10px">⏰${t.reminder_time}</span>`:''}</div>
+    <div class="kca">
+      <button class="bti" style="font-size:11px" onclick="openEdit('${t.id}','${st}','${t.deadline||''}','${t.reminder_time||''}','${t.priority}','${t.category}');event.stopPropagation()">✏️</button>
+      <button class="bti" style="font-size:11px;color:var(--gr)" onclick="doneTask('${t.id}');event.stopPropagation()">✓</button>
+      <button class="bti" style="font-size:11px" onclick="delTask('${t.id}');event.stopPropagation()">🗑</button>
     </div>
   </div>`;
 }
 
-// ── Mobile tap-to-move ────────────────────────────────────────────────────
-function tapCard(e,id){
-  if(!isMobile())return; // desktop uses drag
-  e.stopPropagation();
-  if(selectedTaskId===id){
-    // Deselect
-    clearSelection();
-    return;
-  }
-  clearSelection();
-  selectedTaskId=id;
-  const el=document.getElementById('kcard-'+id);
-  if(el)el.classList.add('selected');
-  // Highlight all columns as tap targets
-  document.querySelectorAll('.kanban-col-body').forEach(b=>b.classList.add('tap-target'));
-  // Show hint
-  showMoveHint();
-}
+function dragStart(e,id){dragId=id;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',id);setTimeout(()=>{const el=document.getElementById('kc-'+id);if(el)el.classList.add('dragging');},0);}
+function dragEnd(){document.querySelectorAll('.kcb').forEach(b=>b.classList.remove('dov'));document.querySelectorAll('.kcard').forEach(c=>c.classList.remove('dragging'));dragId=null;}
 
-function showMoveHint(){
-  removeMoveHint();
-  const hint=document.createElement('div');
-  hint.className='move-hint';
-  hint.id='move-hint';
-  hint.textContent='👆 Нажмите на колонку чтобы перенести';
-  document.body.appendChild(hint);
-}
-
-function removeMoveHint(){
-  const h=document.getElementById('move-hint');
-  if(h)h.remove();
-}
-
-function clearSelection(){
-  selectedTaskId=null;
-  document.querySelectorAll('.kanban-card.selected').forEach(c=>c.classList.remove('selected'));
-  document.querySelectorAll('.kanban-col-body.tap-target').forEach(b=>b.classList.remove('tap-target'));
-  removeMoveHint();
-}
-
-async function tapColumn(e,newDate){
-  if(!isMobile()||!selectedTaskId)return;
-  e.stopPropagation();
-  const id=selectedTaskId;
-  clearSelection();
-  await api(`/api/tasks/${id}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deadline:newDate})});
-  const t=allTasks.find(x=>x.id===id);if(t)t.deadline=newDate;
-  renderKanban();toast('Перенесено!');
-}
-
-// Close selection on tap outside
-document.addEventListener('click',function(e){
-  if(selectedTaskId&&!e.target.closest('.kanban-card')&&!e.target.closest('.kanban-col-body')){clearSelection();}
-});
-
-function dragStart(e,id){
-  draggedTaskId=id;
-  e.dataTransfer.effectAllowed='move';
-  e.dataTransfer.setData('text/plain',id);
-  setTimeout(()=>{const el=document.getElementById('kcard-'+id);if(el)el.classList.add('dragging');},0);
-}
-function dragEnd(){
-  document.querySelectorAll('.kanban-col-body').forEach(b=>b.classList.remove('drag-over'));
-  document.querySelectorAll('.kanban-card').forEach(c=>c.classList.remove('dragging'));
-  // НЕ сбрасываем draggedTaskId здесь — drop ещё не сработал
-}
-
-async function dropTask(e,newDate){
-  e.preventDefault();
-  e.stopPropagation();
-  e.currentTarget.classList.remove('drag-over');
-  const id=e.dataTransfer.getData('text/plain')||draggedTaskId;
-  draggedTaskId=null;
+async function drop(e,nd){
+  e.preventDefault();e.stopPropagation();e.currentTarget.classList.remove('dov');
+  const id=e.dataTransfer.getData('text/plain')||dragId;dragId=null;
   if(!id)return;
-  await api(`/api/tasks/${id}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deadline:newDate})});
-  const t=allTasks.find(x=>x.id===id);if(t)t.deadline=newDate;
+  await api(`/api/tasks/${id}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deadline:nd})});
+  const t=allTasks.find(x=>x.id===id);if(t)t.deadline=nd;
   renderKanban();toast('Перенесено!');
 }
 
-async function doneTask(id){
-  await api(`/api/tasks/${id}/toggle`,{method:'POST'});
-  allTasks=allTasks.filter(t=>t.id!==id);
-  if(tasksView==='kanban')renderKanban();else renderList();
-  toast('Выполнено! 🎉');
+// Mobile tap-to-move
+function tapCard(e,id){
+  if(!mob())return;
+  e.stopPropagation();
+  if(selId===id){clearSel();return;}
+  clearSel();selId=id;
+  const el=document.getElementById('kc-'+id);if(el)el.classList.add('sel');
+  document.querySelectorAll('.kcb').forEach(b=>b.classList.add('tap-target'));
+  document.getElementById('sel-hint').style.display='block';
 }
+async function tapCol(e,nd){
+  if(!mob()||!selId)return;
+  e.stopPropagation();
+  const id=selId;clearSel();
+  await api(`/api/tasks/${id}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deadline:nd})});
+  const t=allTasks.find(x=>x.id===id);if(t)t.deadline=nd;
+  renderKanban();toast('Перенесено!');
+}
+function clearSel(){selId=null;document.querySelectorAll('.kcard.sel').forEach(c=>c.classList.remove('sel'));document.querySelectorAll('.kcb.tap-target').forEach(b=>b.classList.remove('tap-target'));document.getElementById('sel-hint').style.display='none';}
+document.addEventListener('click',e=>{if(selId&&!e.target.closest('.kcard')&&!e.target.closest('.kcb'))clearSel();});
 
-function quickAdd(date){document.getElementById('t-deadline').value=date;openAddTask();}
+async function doneTask(id){await api(`/api/tasks/${id}/toggle`,{method:'POST'});allTasks=allTasks.filter(t=>t.id!==id);if(taskView==='kanban')renderKanban();else renderList();toast('Выполнено! 🎉');}
+async function delTask(id){if(!confirm('Удалить?'))return;await api(`/api/tasks/${id}`,{method:'DELETE'});allTasks=allTasks.filter(t=>t.id!==id);if(taskView==='kanban')renderKanban();else renderList();toast('Удалено');}
+function quickAdd(d){document.getElementById('td').value=d;openAddTask();}
 
-// ── Task CRUD ──────────────────────────────────────────────────────────────
+// Task CRUD
+function openAddTask(){document.getElementById('task-form').style.display='block';document.getElementById('tt').focus();}
+function closeAddTask(){document.getElementById('task-form').style.display='none';}
 async function addTask(){
-  const title=document.getElementById('t-title').value.trim();
-  if(!title)return toast('Введите название',false);
-  const time=document.getElementById('t-time').value||null;
-  const deadline=document.getElementById('t-deadline').value||null;
-  const res=await api('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,emoji:document.getElementById('t-emoji').value||'📌',deadline,priority:document.getElementById('t-priority').value,category:document.getElementById('t-category').value})});
+  const title=document.getElementById('tt').value.trim();if(!title)return toast('Введите название',false);
+  const time=document.getElementById('ttm').value||null;const deadline=document.getElementById('td').value||null;
+  const res=await api('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,emoji:document.getElementById('te').value||'📌',deadline,priority:document.getElementById('tp').value,category:document.getElementById('tc').value})});
   if(time&&res.id)await api(`/api/tasks/${res.id}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reminder_time:time,deadline})});
-  ['t-title','t-time','t-deadline'].forEach(id=>document.getElementById(id).value='');
-  closeAddTask();toast('Задача добавлена!');await loadTasks();
+  ['tt','ttm','td'].forEach(id=>document.getElementById(id).value='');closeAddTask();toast('Задача добавлена!');await loadTasks();
 }
 
-async function deleteTask(id){
-  if(!confirm('Удалить задачу?'))return;
-  await api(`/api/tasks/${id}`,{method:'DELETE'});
-  allTasks=allTasks.filter(t=>t.id!==id);
-  if(tasksView==='kanban')renderKanban();else renderList();
-  toast('Удалено');
+// Edit modal
+function openEdit(id,title,dl,time,pr,cat){
+  editId=id;document.getElementById('em-title').value=title;document.getElementById('em-dl').value=dl;document.getElementById('em-time').value=time;document.getElementById('em-pr').value=pr;document.getElementById('em-cat').value=cat;document.getElementById('edit-mo').classList.add('open');
+}
+function closeEdit(){document.getElementById('edit-mo').classList.remove('open');editId=null;}
+async function saveEdit(){
+  if(!editId)return;
+  await api(`/api/tasks/${editId}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:document.getElementById('em-title').value.trim(),deadline:document.getElementById('em-dl').value||null,reminder_time:document.getElementById('em-time').value||null,priority:document.getElementById('em-pr').value,category:document.getElementById('em-cat').value})});
+  closeEdit();toast('Сохранено!');await loadTasks();
+}
+document.getElementById('edit-mo').addEventListener('click',e=>{if(e.target===document.getElementById('edit-mo'))closeEdit();});
+document.getElementById('habit-mo').addEventListener('click',e=>{if(e.target===document.getElementById('habit-mo'))closeHM();});
+
+// ── Analytics ──────────────────────────────────────────────────────────────
+async function loadAnalytics(){
+  const[habits,wd]=await Promise.all([api('/api/habits'),api('/api/stats/week')]);
+  
+  // Heatmap (last 16 weeks)
+  buildHeatmap();
+  
+  // Week chart
+  if(weekChart)weekChart.destroy();
+  weekChart=new Chart(document.getElementById('chart-weeks'),{type:'bar',data:{labels:wd.map(d=>d.weekday),datasets:[{data:wd.map(d=>d.pct),backgroundColor:wd.map(d=>d.pct>=80?'#34d399':d.pct>=50?'#fbbf24':'#7c6ff7'),borderRadius:6}]},options:{plugins:{legend:{display:false}},scales:{y:{max:100,grid:{color:'#2d2d3d'},ticks:{color:'#6b6b8a',callback:v=>v+'%'}},x:{grid:{display:false},ticks:{color:'#6b6b8a'}}}}});
+  
+  // Top habits
+  document.getElementById('top-habits').innerHTML=habits.length?habits.sort((a,b)=>(b.current_streak||0)-(a.current_streak||0)).slice(0,5).map((h,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--b)"><span style="font-size:16px;width:20px;text-align:center">${['🥇','🥈','🥉','4️⃣','5️⃣'][i]}</span><span style="flex:1;font-size:13px">${h.emoji||'✅'} ${h.name}</span><span class="streak-badge">🔥${h.current_streak||0}</span></div>`).join(''):'<div class="empty">Нет данных</div>';
+  
+  // Category chart
+  const tasks=await api('/api/tasks?completed=false');
+  const cats={work:0,personal:0,health:0,learning:0,other:0};
+  tasks.forEach(t=>cats[t.category||'other']=(cats[t.category||'other']||0)+1);
+  if(catChart)catChart.destroy();
+  catChart=new Chart(document.getElementById('chart-cats'),{type:'doughnut',data:{labels:['Работа','Личное','Здоровье','Учёба','Другое'],datasets:[{data:Object.values(cats),backgroundColor:['#7c6ff7','#6b6b8a','#34d399','#fbbf24','#fb923c'],borderWidth:0}]},options:{plugins:{legend:{position:'bottom',labels:{color:'#6b6b8a',font:{size:11}}}}}});
 }
 
-// ── Edit Modal ──────────────────────────────────────────────────────────────
-function openEdit(id,title,deadline,time,priority,category){
-  editingTaskId=id;
-  document.getElementById('edit-title').value=title;
-  document.getElementById('edit-deadline').value=deadline;
-  document.getElementById('edit-time').value=time;
-  document.getElementById('edit-priority').value=priority;
-  document.getElementById('edit-category').value=category;
-  document.getElementById('edit-modal').classList.add('open');
+function buildHeatmap(){
+  const el=document.getElementById('heatmap');
+  const months=document.getElementById('heatmap-months');
+  const days=[];const today=new Date();
+  for(let i=111;i>=0;i--){const d=new Date(today);d.setDate(d.getDate()-i);days.push(d);}
+  // Simple visualization - random data for now
+  el.innerHTML=days.map(d=>{const v=Math.random();const l=v<.3?'':v<.5?'l1':v<.7?'l2':v<.9?'l3':'l4';return`<div class="hm-day ${l}" title="${d.toLocaleDateString('ru-RU')}"></div>`;}).join('');
+  // Month labels
+  const ms=[];days.forEach((d,i)=>{const m=d.getMonth();if(i===0||days[i-1].getMonth()!==m)ms.push({m,pos:i});});
+  months.innerHTML=ms.slice(0,6).map(x=>`<span class="hm-month" style="margin-left:${x.pos*15}px">${RM[x.m]}</span>`).join('');
 }
-function closeEditModal(){document.getElementById('edit-modal').classList.remove('open');editingTaskId=null;}
-async function saveEditTask(){
-  if(!editingTaskId)return;
-  await api(`/api/tasks/${editingTaskId}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:document.getElementById('edit-title').value.trim(),deadline:document.getElementById('edit-deadline').value||null,reminder_time:document.getElementById('edit-time').value||null,priority:document.getElementById('edit-priority').value,category:document.getElementById('edit-category').value})});
-  closeEditModal();toast('Сохранено!');await loadTasks();
+
+// ── AI Chat ────────────────────────────────────────────────────────────────
+let chatHistory=[];
+
+async function aiSend(preset){
+  const inp=document.getElementById('chat-input');
+  const text=preset||inp.value.trim();
+  if(!text)return;
+  inp.value='';
+  
+  addMsg(text,'user');
+  const typing=addTyping();
+  
+  try {
+    const tasks=await api('/api/tasks?completed=false');
+    const habits=await api('/api/habits');
+    const context=`Пользователь использует планировщик Planify. Его задачи: ${tasks.slice(0,5).map(t=>t.title).join(', ')||'нет'}. Привычки: ${habits.map(h=>h.name).join(', ')||'нет'}.`;
+    
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,system:`Ты дружелюбный ИИ-ассистент планировщика Planify. Отвечай кратко и по делу на русском языке. ${context}`,messages:[...chatHistory,{role:'user',content:text}]})});
+    const data=await resp.json();
+    typing.remove();
+    const answer=data.content?.[0]?.text||'Не удалось получить ответ';
+    addMsg(answer,'ai');
+    chatHistory.push({role:'user',content:text},{role:'assistant',content:answer});
+    if(chatHistory.length>20)chatHistory=chatHistory.slice(-20);
+  } catch(e) {
+    typing.remove();
+    addMsg('Ошибка соединения с ИИ. Попробуйте позже.','ai');
+  }
 }
-document.getElementById('edit-modal').addEventListener('click',function(e){if(e.target===this)closeEditModal();});
+
+function addMsg(text,role){
+  const msgs=document.getElementById('chat-msgs');
+  const div=document.createElement('div');
+  div.className=`msg msg-${role}`;
+  div.innerHTML=text.replace(/\n/g,'<br>')+`<div class="msg-time">${new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop=msgs.scrollHeight;
+  return div;
+}
+
+function addTyping(){
+  const msgs=document.getElementById('chat-msgs');
+  const div=document.createElement('div');
+  div.className='msg msg-ai';
+  div.innerHTML='<div class="typing"><span></span><span></span><span></span></div>';
+  msgs.appendChild(div);
+  msgs.scrollTop=msgs.scrollHeight;
+  return div;
+}
+
+// ── Settings ───────────────────────────────────────────────────────────────
+async function loadPhone(){
+  try{const u=await api('/api/me');document.getElementById('phone-display').textContent=u.phone||'Не установлен. Используйте /setphone в боте.';}catch(e){}
+}
 
 // ── Init ───────────────────────────────────────────────────────────────────
-// ── Habit Settings ────────────────────────────────────────────────────────
-let editingHabitId = null;
-
-function openHabitSettings(id, name, remTime, remDays, best) {
-  editingHabitId = id;
-  document.getElementById('habit-modal-title').textContent = `⚙️ ${name}`;
-  document.getElementById('hm-time').value = remTime || '';
-  // Find streak from allHabits
-  const h = (window._habits||[]).find(x=>x.id===id);
-  document.getElementById('hm-streak').textContent = (h&&h.current_streak)||0;
-  document.getElementById('hm-best').textContent = best||0;
-  // Set days
-  const days = remDays==='all' ? [0,1,2,3,4,5,6] : (remDays||'').split(',').map(Number);
-  document.querySelectorAll('.day-btn').forEach(btn => {
-    btn.classList.toggle('active', days.includes(parseInt(btn.dataset.day)));
-  });
-  document.getElementById('habit-modal').classList.add('open');
-}
-
-function toggleDay(btn) {
-  btn.classList.toggle('active');
-}
-
-function closeHabitModal() {
-  document.getElementById('habit-modal').classList.remove('open');
-  editingHabitId = null;
-}
-
-async function saveHabitSettings() {
-  if (!editingHabitId) return;
-  const time = document.getElementById('hm-time').value || null;
-  const activeDays = [...document.querySelectorAll('.day-btn.active')].map(b=>b.dataset.day).join(',');
-  const days = activeDays === '0,1,2,3,4,5,6' ? 'all' : activeDays;
-  await api(`/api/habits/${editingHabitId}/settings`, {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({reminder_time: time, reminder_days: days}),
-  });
-  closeHabitModal();
-  toast('Настройки сохранены!');
-  loadHabits();
-}
-
-document.getElementById('habit-modal').addEventListener('click', function(e) {
-  if (e.target === this) closeHabitModal();
-});
-
 if(!TOKEN){
-  document.querySelector('.main').innerHTML=`<div style="display:flex;align-items:center;justify-content:center;min-height:80vh;flex-direction:column;gap:20px;text-align:center"><div style="font-size:56px">🔐</div><div style="font-size:22px;font-weight:700">Нужна авторизация</div><div style="color:var(--muted);max-width:260px;font-size:15px">Откройте Telegram бота и введите команду <strong>/web</strong></div></div>`;
-  document.querySelector('.bottom-nav').style.display='none';
-  document.getElementById('fab-btn').style.display='none';
+  document.querySelector('.main').innerHTML=`<div style="display:flex;align-items:center;justify-content:center;min-height:80vh;flex-direction:column;gap:20px;text-align:center"><div style="font-size:60px">✨</div><div style="font-size:24px;font-weight:800">Planify</div><div style="color:var(--mt);max-width:280px;font-size:14px;line-height:1.6">Откройте Telegram бота и введите команду <strong>/web</strong> чтобы получить персональную ссылку</div></div>`;
+  document.querySelector('.bnav').style.display='none';
+  document.getElementById('fab').style.display='none';
 }else{
-  loadDashboard();
-  // Set initial FAB state
-  document.getElementById('fab-btn').style.display='none';
+  loadDash();
+  document.getElementById('fab').style.display='none';
 }
 </script>
 </body>
