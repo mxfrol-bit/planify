@@ -196,4 +196,4 @@ async def reminder_loop(bot_app):
 
         await check_task_reminders(bot_app)
         await check_habit_reminders(bot_app)
-        await asyncio.sleep(180)  # каждые 3 минуты
+        await asyncio.sleep(300)  # каждые 5 минут
