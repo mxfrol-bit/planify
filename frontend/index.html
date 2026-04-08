@@ -258,6 +258,16 @@ select option{background:var(--s2);}
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><b>🎯 Привычки</b><button class="btn btn-g btn-sm" onclick="go('habits',null)">Все →</button></div><div id="dash-habits"><div class="loader">...</div></div></div>
     <div class="card"><b>📅 Неделя</b><div class="wg" id="week-chart" style="margin-top:14px"><div class="loader">...</div></div></div>
   </div>
+  <div class="card" style="margin-top:16px;background:linear-gradient(135deg,rgba(79,70,229,.15),rgba(124,111,247,.08));border-color:rgba(124,111,247,.3)">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <div style="font-weight:700;font-size:16px;margin-bottom:4px">📞 Голосовой дайджест</div>
+        <div style="font-size:13px;color:var(--mt)">Позвоню и расскажу задачи и привычки на сегодня</div>
+      </div>
+      <button class="btn btn-p" onclick="testCall()" id="call-btn">📞 Позвонить мне</button>
+    </div>
+    <div id="call-result" style="margin-top:12px;display:none"></div>
+  </div>
   <div class="card" style="margin-top:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><b>📋 Ближайшие задачи</b><button class="btn btn-g btn-sm" onclick="go('tasks',null)">Все →</button></div>
     <div id="dash-tasks"><div class="loader">...</div></div>
@@ -758,6 +768,34 @@ async function loadPhone(){
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
+async function testCall(){
+  const btn=document.getElementById('call-btn');
+  const res=document.getElementById('call-result');
+  btn.textContent='⏳ Звоню...';btn.disabled=true;
+  res.style.display='none';
+  try{
+    const data=await api('/api/call/test',{method:'POST'});
+    res.style.display='block';
+    if(data.success){
+      res.innerHTML=`<div style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);border-radius:10px;padding:12px">
+        <div style="font-weight:600;color:var(--gr);margin-bottom:6px">✅ Звонок отправлен на ${data.phone}</div>
+        <div style="font-size:12px;color:var(--mt)">Текст звонка:</div>
+        <div style="font-size:13px;margin-top:4px;font-style:italic">"${data.text}"</div>
+      </div>`;
+    }else{
+      res.innerHTML=`<div style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:12px">
+        <div style="font-weight:600;color:var(--rd);margin-bottom:4px">❌ ${data.error||'Ошибка'}</div>
+        ${data.text?`<div style="font-size:12px;color:var(--mt)">Текст который должен был прозвучать:</div><div style="font-size:13px;margin-top:4px;font-style:italic">"${data.text}"</div>`:''}
+        ${!data.phone?'<div style="font-size:12px;margin-top:6px">Установите номер командой /setphone в боте</div>':''}
+      </div>`;
+    }
+  }catch(e){
+    res.style.display='block';
+    res.innerHTML=`<div style="color:var(--rd);font-size:13px">Ошибка: ${e.message}</div>`;
+  }
+  btn.textContent='📞 Позвонить мне';btn.disabled=false;
+}
+
 if(!TOKEN){
   document.querySelector('.main').innerHTML=`<div style="display:flex;align-items:center;justify-content:center;min-height:80vh;flex-direction:column;gap:20px;text-align:center"><div style="font-size:60px">✨</div><div style="font-size:24px;font-weight:800">Planify</div><div style="color:var(--mt);max-width:280px;font-size:14px;line-height:1.6">Откройте Telegram бота и введите команду <strong>/web</strong> чтобы получить персональную ссылку</div></div>`;
   document.querySelector('.bnav').style.display='none';

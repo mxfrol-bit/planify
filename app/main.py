@@ -297,6 +297,78 @@ async def ai_chat(request: Request, token: str):
         raise HTTPException(500, str(e))
 
 
+# ── Test call ─────────────────────────────────────────────────────────────
+
+@app.post("/api/call/test")
+async def test_call(request: Request, token: str):
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    
+    phone = user.get("phone")
+    if not phone:
+        raise HTTPException(400, "Номер телефона не установлен. Используйте /setphone в боте.")
+    
+    # Собираем задачи на сегодня
+    from datetime import date
+    today = date.today().isoformat()
+    tasks = db.get_tasks(user["id"], completed=False)
+    habits = db.get_habits(user["id"])
+    today_tasks = [t for t in tasks if t.get("deadline") == today]
+    
+    # Генерируем текст
+    name = user.get("first_name", "")
+    text_parts = [f"Добрый день, {name}!" if name else "Добрый день!"]
+    
+    if today_tasks:
+        text_parts.append(f"На сегодня у вас {len(today_tasks)} задач.")
+        for t in today_tasks[:3]:
+            time_str = f"в {t['reminder_time']}" if t.get("reminder_time") else ""
+            text_parts.append(f"{t['title']} {time_str}.")
+    else:
+        text_parts.append("На сегодня задач нет.")
+    
+    if habits:
+        done_logs = db.get_today_logs(user["id"], today)
+        done_ids = {l["habit_id"] for l in done_logs}
+        not_done = [h for h in habits if h["id"] not in done_ids]
+        if not_done:
+            text_parts.append(f"Также не забудьте про привычки: {', '.join([h['name'] for h in not_done[:3]])}.")
+    
+    text_parts.append("Удачного дня!")
+    call_text = " ".join(text_parts)
+    
+    # Звоним
+    from app.caller import make_call
+    task_mock = {"title": "Дайджест дня", "reminder_time": "", "emoji": "📞", "id": "test"}
+    
+    import httpx, os
+    ZVONOK_API_KEY = os.getenv("ZVONOK_API_KEY", "")
+    ZVONOK_CAMPAIGN_ID = os.getenv("ZVONOK_CAMPAIGN_ID", "")
+    
+    if not ZVONOK_API_KEY:
+        return {"success": False, "error": "Zvonok не настроен", "text": call_text}
+    
+    phone_clean = "".join(filter(str.isdigit, phone))
+    if phone_clean.startswith("8"):
+        phone_clean = "7" + phone_clean[1:]
+    if not phone_clean.startswith("7"):
+        phone_clean = "7" + phone_clean
+    
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                "https://zvonok.com/manager/cabapi_external/api/v1/phones/call/",
+                data={"public_key": ZVONOK_API_KEY, "campaign_id": ZVONOK_CAMPAIGN_ID,
+                      "phone": phone_clean, "text": call_text}
+            )
+        result = resp.json()
+        success = result.get("status") == "ok" or bool(result.get("call_id"))
+        return {"success": success, "text": call_text, "phone": phone, "zvonok": result}
+    except Exception as e:
+        return {"success": False, "error": str(e), "text": call_text}
+
+
 # ── Serve Frontend ────────────────────────────────────────────────────────
 
 app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
