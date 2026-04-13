@@ -1,634 +1,669 @@
 import os
-import asyncio
 import logging
 from datetime import date, timedelta
-from contextlib import asynccontextmanager
-from typing import Optional
-
-from fastapi import FastAPI, HTTPException, Header, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-import uvicorn
-from telegram import Update
-
-from app.database import db
-from app.models import HabitCreate, HabitToggle, TaskCreate
-from app.bot import build_application
-from app.reminder import reminder_loop
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
-bot_app = None
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global bot_app
-    bot_app = build_application()
-    await bot_app.initialize()
-    await bot_app.start()
-
-    if WEBHOOK_URL:
-        webhook_path = f"{WEBHOOK_URL}/webhook"
-        await bot_app.bot.set_webhook(url=webhook_path)
-        logger.info(f"Webhook set to {webhook_path}")
-
-    # Запускаем планировщик напоминаний
-    reminder_task = asyncio.create_task(reminder_loop(bot_app))
-
-    yield
-
-    reminder_task.cancel()
-    await bot_app.stop()
-    await bot_app.shutdown()
-
-
-app = FastAPI(title="PlanifyBot API", version="1.0.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+from app.ai_parser import parse_task, ai_available
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, CallbackQueryHandler,
+    MessageHandler, ConversationHandler, filters, ContextTypes
 )
+from app.database import db
 
+logger = logging.getLogger(__name__)
+import tempfile, os
 
-# ── Auth helper ──────────────────────────────────────────────────────────
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+PORT = int(os.getenv("PORT", 8000))
 
-def get_current_user(x_token: str = Header(None)):
-    if not x_token:
-        raise HTTPException(401, "Token required")
-    user = db.get_user_by_token(x_token)
-    if not user:
-        raise HTTPException(401, "Invalid token")
-    return user
+WAITING_HABIT_NAME, WAITING_TASK_TITLE, WAITING_TASK_DEADLINE, WAITING_TASK_PRIORITY = range(4)
+PRIORITY_MAP = {"urgent": "🔴 Срочно", "high": "🟠 Высокий", "medium": "🟡 Средний", "low": "🟢 Низкий"}
 
-
-# ── Telegram Webhook ─────────────────────────────────────────────────────
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-@app.post("/webhook")
-async def telegram_webhook(request: Request):
-    data = await request.json()
-    update = Update.de_json(data, bot_app.bot)
-    await bot_app.process_update(update)
-    return {"ok": True}
-
-
-# ── User ─────────────────────────────────────────────────────────────────
-
-@app.get("/api/me")
-def get_me(token: str):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401, "Invalid token")
-    return user
-
-
-# ── Habits ───────────────────────────────────────────────────────────────
-
-@app.get("/api/habits")
-def get_habits(token: str, date_str: Optional[str] = None):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-
-    today = date_str or date.today().isoformat()
-    habits = db.get_habits(user["id"])
-    logs = db.get_today_logs(user["id"], today)
-    done_ids = {l["habit_id"] for l in logs}
-
-    return [
-        {**h, "done_today": h["id"] in done_ids}
-        for h in habits
-    ]
-
-
-@app.post("/api/habits")
-def create_habit(body: HabitCreate, token: str):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    return db.create_habit(user["id"], body.name, body.emoji, body.frequency)
-
-
-@app.post("/api/habits/{habit_id}/toggle")
-def toggle_habit(habit_id: str, body: HabitToggle, token: str):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    done = db.toggle_habit(habit_id, user["id"], body.date)
-    return {"done": done}
-
-
-@app.post("/api/habits/{habit_id}/settings")
-def update_habit_settings(habit_id: str, token: str, body: dict):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    data = {}
-    if "reminder_time" in body:
-        data["reminder_time"] = body["reminder_time"]
-    if "reminder_days" in body:
-        data["reminder_days"] = body["reminder_days"]
-    if data:
-        db.update_habit(habit_id, user["id"], data)
-    return {"ok": True}
-
-
-@app.delete("/api/habits/{habit_id}")
-def delete_habit(habit_id: str, token: str):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    db.delete_habit(habit_id, user["id"])
-    return {"ok": True}
-
-
-# ── Tasks ─────────────────────────────────────────────────────────────────
-
-@app.get("/api/tasks")
-def get_tasks(token: str, completed: Optional[bool] = None):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    tasks = db.get_tasks(user["id"], completed)
-
+def get_today(): return date.today().isoformat()
+def get_week_start():
     today = date.today()
-    result = []
-    for t in tasks:
-        days_left = None
-        if t["deadline"]:
-            days_left = (date.fromisoformat(t["deadline"]) - today).days
-        result.append({**t, "days_left": days_left})
-    return result
+    return (today - timedelta(days=today.weekday())).isoformat()
+def ensure_user(update):
+    u = update.effective_user
+    db.create_user(u.id, u.username, u.first_name)
 
+# ── AI parser → см. app/ai_parser.py ────────────────────────────────────
 
-@app.post("/api/tasks")
-def create_task(body: TaskCreate, token: str):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    return db.create_task(
-        user["id"], body.title, body.emoji,
-        body.deadline, body.priority, body.category
-    )
+# ── Voice handler ─────────────────────────────────────────────────────────
 
+async def transcribe_voice(file_path: str) -> str | None:
+    """Транскрибирует голосовое через Groq Whisper (бесплатно и быстро)"""
+    import httpx
 
-@app.post("/api/tasks/{task_id}/toggle")
-def toggle_task(task_id: str, token: str):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    done = db.toggle_task(task_id, user["id"])
-    return {"completed": done}
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
-
-@app.post("/api/tasks/{task_id}/update")
-def update_task(task_id: str, token: str, body: dict):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    from app.models import TaskUpdate
-    supabase_data = {k: v for k, v in body.items() if v is not None}
-    from app.database import supabase
-    supabase.table("tasks").update(supabase_data).eq("id", task_id).eq("user_id", user["id"]).execute()
-    if body.get("reminder_time") and body.get("deadline"):
-        db.set_reminder_time(task_id, user["id"], body["reminder_time"])
-    return {"ok": True}
-
-
-@app.delete("/api/tasks/{task_id}")
-def delete_task(task_id: str, token: str):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    db.delete_task(task_id, user["id"])
-    return {"ok": True}
-
-
-# ── Stats ─────────────────────────────────────────────────────────────────
-
-@app.get("/api/stats")
-def get_stats(token: str):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-
-    today = date.today()
-    week_start = (today - timedelta(days=today.weekday())).isoformat()
-    return db.get_stats(user["id"], today.isoformat(), week_start)
-
-
-@app.get("/api/stats/week")
-def get_week_stats(token: str):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-
-    today = date.today()
-    habits = db.get_habits(user["id"])
-    week_data = []
-
-    for i in range(6, -1, -1):
-        day = today - timedelta(days=i)
-        day_str = day.isoformat()
-        logs = db.get_today_logs(user["id"], day_str)
-        done = len(logs)
-        total = len(habits)
-        week_data.append({
-            "date": day_str,
-            "weekday": ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][day.weekday()],
-            "done": done,
-            "total": total,
-            "pct": round(done / total * 100) if total else 0,
-        })
-
-    return week_data
-
-
-# ── AI Chat proxy ─────────────────────────────────────────────────────────
-
-@app.post("/api/ai/chat")
-async def ai_chat(request: Request, token: str):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    
-    body = await request.json()
-    messages = body.get("messages", [])
-    system = body.get("system", "Ты дружелюбный ИИ-ассистент планировщика Planify. Отвечай кратко на русском языке.")
-    
-    import httpx, os
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
-    
-    try:
-        if openrouter_key:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {openrouter_key}", "Content-Type": "application/json"},
-                    json={"model": "google/gemini-2.0-flash-001", "max_tokens": 600,
-                          "messages": [{"role": "system", "content": system}] + messages}
-                )
-            data = resp.json()
-            text = data["choices"][0]["message"]["content"]
-        elif api_key:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"},
-                    json={"model": "claude-haiku-4-5-20251001", "max_tokens": 600, "system": system, "messages": messages}
-                )
-            data = resp.json()
-            text = data["content"][0]["text"]
-        else:
-            text = "AI не настроен. Добавьте OPENROUTER_API_KEY в Railway Variables."
-        return {"text": text}
-    except Exception as e:
-        logger.error(f"AI chat error: {e}")
-        raise HTTPException(500, str(e))
-
-
-# ── iCal Calendar feed ────────────────────────────────────────────────────
-
-@app.get("/calendar/{token}.ics")
-async def get_ical(token: str):
-    from fastapi.responses import Response
-    from datetime import date, datetime, timedelta
-    import uuid
-    
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(404)
-    
-    tasks = db.get_tasks(user["id"], completed=False)
-    habits = db.get_habits(user["id"])
-    name = user.get("first_name", "Planify")
-    
-    now = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    
-    lines = [
-        "BEGIN:VCALENDAR",
-        "VERSION:2.0",
-        "PRODID:-//Planify//RU",
-        f"X-WR-CALNAME:Planify — {name}",
-        "X-WR-TIMEZONE:Europe/Moscow",
-        "CALSCALE:GREGORIAN",
-        "METHOD:PUBLISH",
-        "X-WR-CALDESC:Задачи и привычки из Planify",
-    ]
-    
-    # Tasks as events
-    for t in tasks:
-        if not t.get("deadline"):
-            continue
-        dl = t["deadline"]
-        uid_str = f"{t['id']}@planify"
-        
-        # Date/time
-        if t.get("reminder_time"):
-            try:
-                h, m = map(int, t["reminder_time"].split(":"))
-                # Convert Moscow to UTC (UTC+3)
-                dt = datetime.strptime(dl, "%Y-%m-%d").replace(hour=h, minute=m)
-                dt_utc = dt - timedelta(hours=3)
-                dtstart = dt_utc.strftime("%Y%m%dT%H%M%SZ")
-                dtend = (dt_utc + timedelta(hours=1)).strftime("%Y%m%dT%H%M%SZ")
-                alarm_dt = (dt_utc - timedelta(hours=1)).strftime("%Y%m%dT%H%M%SZ")
-                has_time = True
-            except:
-                has_time = False
-        else:
-            has_time = False
-        
-        priority_map = {"urgent": 1, "high": 3, "medium": 5, "low": 9}
-        prio = priority_map.get(t.get("priority", "medium"), 5)
-        emoji = t.get("emoji", "📌")
-        title = f"{emoji} {t.get('title', '')}"
-        
-        lines += ["BEGIN:VEVENT", f"UID:{uid_str}", f"DTSTAMP:{now}"]
-        
-        if has_time:
-            lines += [f"DTSTART:{dtstart}", f"DTEND:{dtend}"]
-        else:
-            dl_fmt = dl.replace("-", "")
-            lines += [f"DTSTART;VALUE=DATE:{dl_fmt}",
-                      f"DTEND;VALUE=DATE:{dl_fmt}"]
-        
-        lines += [
-            f"SUMMARY:{title}",
-            f"PRIORITY:{prio}",
-            f"CATEGORIES:{t.get('category','personal').upper()}",
-        ]
-        
-        if has_time:
-            lines += [
-                "BEGIN:VALARM",
-                "TRIGGER:-PT60M",
-                "ACTION:DISPLAY",
-                f"DESCRIPTION:Напоминание: {title}",
-                "END:VALARM",
-            ]
-        
-        lines.append("END:VEVENT")
-    
-    # Habits as recurring events (today only - simplified)
-    today = date.today()
-    for h in habits:
-        if not h.get("reminder_time"):
-            continue
+    # Пробуем Groq Whisper — самый быстрый и бесплатный
+    if GROQ_API_KEY:
         try:
-            hr, mn = map(int, h["reminder_time"].split(":"))
-            dt = datetime(today.year, today.month, today.day, hr, mn)
-            dt_utc = dt - timedelta(hours=3)
-            dtstart = dt_utc.strftime("%Y%m%dT%H%M%SZ")
-            dtend = (dt_utc + timedelta(minutes=30)).strftime("%Y%m%dT%H%M%SZ")
-            emoji = h.get("emoji", "✅")
-            title = f"{emoji} {h.get('name', '')}"
-            uid_str = f"habit-{h['id']}@planify"
-            
-            days_map = {"0":"MO","1":"TU","2":"WE","3":"TH","4":"FR","5":"SA","6":"SU"}
-            rd = h.get("reminder_days", "all")
-            if rd == "all":
-                rrule = "RRULE:FREQ=DAILY"
+            with open(file_path, "rb") as f:
+                audio_bytes = f.read()
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    "https://api.groq.com/openai/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                    files={"file": ("voice.ogg", audio_bytes, "audio/ogg")},
+                    data={"model": "whisper-large-v3", "language": "ru", "response_format": "text"}
+                )
+            if resp.status_code == 200:
+                text = resp.text.strip()
+                logger.info(f"Groq transcribed: {text[:60]}")
+                return text
             else:
-                byday = ",".join([days_map[d] for d in rd.split(",") if d in days_map])
-                rrule = f"RRULE:FREQ=WEEKLY;BYDAY={byday}"
-            
-            lines += [
-                "BEGIN:VEVENT",
-                f"UID:{uid_str}",
-                f"DTSTAMP:{now}",
-                f"DTSTART:{dtstart}",
-                f"DTEND:{dtend}",
-                f"SUMMARY:{title}",
-                rrule,
-                "CATEGORIES:HABIT",
-                "BEGIN:VALARM",
-                "TRIGGER:-PT5M",
-                "ACTION:DISPLAY",
-                f"DESCRIPTION:{title}",
-                "END:VALARM",
-                "END:VEVENT",
-            ]
+                logger.error(f"Groq error: {resp.status_code} {resp.text[:100]}")
+        except Exception as e:
+            logger.error(f"Groq voice error: {e}")
+
+    # Запасной — Gemini через Files API (загружаем файл, потом транскрибируем)
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    if GEMINI_API_KEY:
+        try:
+            with open(file_path, "rb") as f:
+                audio_bytes = f.read()
+
+            # Шаг 1: загружаем файл в Gemini Files API
+            async with httpx.AsyncClient(timeout=30) as client:
+                upload_resp = await client.post(
+                    f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={GEMINI_API_KEY}",
+                    headers={"X-Goog-Upload-Command": "start, upload, finalize",
+                             "X-Goog-Upload-Protocol": "raw",
+                             "Content-Type": "audio/ogg"},
+                    content=audio_bytes
+                )
+            if upload_resp.status_code != 200:
+                logger.error(f"Gemini upload error: {upload_resp.text[:100]}")
+                return None
+
+            file_uri = upload_resp.json()["file"]["uri"]
+            logger.info(f"Gemini file uploaded: {file_uri}")
+
+            # Шаг 2: транскрибируем
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
+                    json={
+                        "contents": [{"parts": [
+                            {"file_data": {"mime_type": "audio/ogg", "file_uri": file_uri}},
+                            {"text": "Транскрибируй это голосовое сообщение дословно на русском языке. Верни только текст, без пояснений."}
+                        ]}]
+                    }
+                )
+            result = resp.json()
+            if "candidates" in result:
+                text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                logger.info(f"Gemini transcribed: {text[:60]}")
+                return text
+            else:
+                logger.error(f"Gemini transcribe error: {result}")
+        except Exception as e:
+            logger.error(f"Gemini files voice error: {e}")
+
+    return None
+
+
+async def handle_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает голосовые сообщения"""
+    ensure_user(update)
+    uid = update.effective_user.id
+    
+    msg = await update.message.reply_text("🎙 Слушаю...")
+    
+    try:
+        # Скачиваем голосовое
+        voice = update.message.voice or update.message.audio
+        if not voice:
+            await msg.edit_text("Не удалось получить аудио")
+            return
+        
+        file = await ctx.bot.get_file(voice.file_id)
+        
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+            tmp_path = tmp.name
+        
+        await file.download_to_drive(tmp_path)
+        
+        # Транскрибируем
+        await msg.edit_text("🎙 Распознаю речь...")
+        text = await transcribe_voice(tmp_path)
+        
+        # Удаляем временный файл
+        try:
+            os.unlink(tmp_path)
         except:
-            continue
+            pass
+        
+        if not text:
+            await msg.edit_text("Не удалось распознать речь. Попробуй написать текстом.")
+            return
+        
+        # Показываем что распознали
+        await msg.edit_text(f"🎙 Распознал: _{text}_", parse_mode="Markdown")
+        
+        # Парсим через AI как обычный текст
+        if not ai_available():
+            db.create_task(uid, text, "📌", None, "medium", "personal")
+            await update.message.reply_text(f"📌 Записал: *{text}*", parse_mode="Markdown")
+            return
+        
+        parsed_list = await parse_task(text)
+        if not parsed_list:
+            parsed_list = [{"is_task": True, "title": text, "emoji": "📌", "deadline": None, "time": None, "priority": "medium", "category": "personal"}]
+        
+        tasks_to_create = [p for p in parsed_list if p.get("is_task")]
+        if not tasks_to_create:
+            tasks_to_create = [{"title": text, "emoji": "📌", "deadline": None, "time": None, "priority": "medium", "category": "personal"}]
+        
+        created = []
+        for p in tasks_to_create:
+            title = p.get("title", text)
+            emoji = p.get("emoji") or "📌"
+            deadline = p.get("deadline")
+            time_str = p.get("time")
+            priority = p.get("priority", "medium")
+            category = p.get("category", "personal")
+            task = db.create_task(uid, title, emoji, deadline, priority, category)
+            if time_str and deadline:
+                db.set_reminder_time(task["id"], uid, time_str)
+            created.append({"title": title, "emoji": emoji, "deadline": deadline, "time_str": time_str, "priority": priority, "task": task})
+        
+        if len(created) == 1:
+            t = created[0]
+            dl = f"\n📅 {t['deadline']}" if t["deadline"] else ""
+            tm = f" в {t['time_str']}" if t["time_str"] else ""
+            pr = PRIORITY_MAP.get(t["priority"], "")
+            kb = [[InlineKeyboardButton("✅ Окей", callback_data="ai_ok"),
+                   InlineKeyboardButton("🗑 Удалить", callback_data=f"task_del:{t['task']['id']}")]]
+            await update.message.reply_text(
+                f"📌 Записал:\n\n*{t['emoji']} {t['title']}*{dl}{tm}\n{pr}",
+                parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb)
+            )
+        else:
+            lines = [f"{t['emoji']} *{t['title']}*" + (f" · {t['deadline']}" if t['deadline'] else "") for t in created]
+            await update.message.reply_text(
+                f"📌 Записал *{len(created)}* задачи:\n\n" + "\n".join(lines),
+                parse_mode="Markdown"
+            )
     
-    lines.append("END:VCALENDAR")
-    ical_text = "\r\n".join(lines) + "\r\n"
+    except Exception as e:
+        logger.error(f"Voice handler error: {e}")
+        await msg.edit_text("Ошибка обработки голосового. Попробуй написать текстом.")
+
+
+# ── Free text handler ─────────────────────────────────────────────────────
+
+async def handle_free_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    text = update.message.text.strip()
+    uid = update.effective_user.id
+
+    if ai_available():
+        msg = await update.message.reply_text("⏳ Записываю...")
+        parsed_list = await parse_task(text)
+
+        # Если AI не вернул ничего — сохраняем как есть
+        if not parsed_list:
+            parsed_list = [{"is_task": True, "title": text, "emoji": "📌", "deadline": None, "time": None, "priority": "medium", "category": "personal"}]
+
+        # Фильтруем только задачи
+        tasks_to_create = [p for p in parsed_list if p.get("is_task")]
+        if not tasks_to_create:
+            tasks_to_create = [{"is_task": True, "title": text, "emoji": "📌", "deadline": None, "time": None, "priority": "medium", "category": "personal"}]
+
+        created_tasks = []
+        for p in tasks_to_create:
+            title = p.get("title", text)
+            emoji = p.get("emoji") or "📌"
+            deadline = p.get("deadline")
+            time_str = p.get("time")
+            priority = p.get("priority", "medium")
+            category = p.get("category", "personal")
+            task = db.create_task(uid, title, emoji, deadline, priority, category)
+            if time_str and deadline:
+                db.set_reminder_time(task["id"], uid, time_str)
+            created_tasks.append({"task": task, "title": title, "emoji": emoji, "deadline": deadline, "time_str": time_str, "priority": priority})
+
+        if len(created_tasks) == 1:
+            t = created_tasks[0]
+            dl = f"\n📅 {t['deadline']}" if t['deadline'] else ""
+            tm = f" в {t['time_str']}" if t['time_str'] else ""
+            pr = PRIORITY_MAP.get(t['priority'], "")
+            kb = [[InlineKeyboardButton("✅ Окей", callback_data="ai_ok"),
+                   InlineKeyboardButton("🗑 Удалить", callback_data=f"task_del:{t['task']['id']}")]]
+            await msg.edit_text(f"📌 Записал:\n\n*{t['emoji']} {t['title']}*{dl}{tm}\n{pr}",
+                                parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        else:
+            # Несколько задач
+            lines = []
+            for t in created_tasks:
+                dl = f" · {t['deadline']}" if t['deadline'] else ""
+                tm = f" в {t['time_str']}" if t['time_str'] else ""
+                lines.append(f"{t['emoji']} *{t['title']}*{dl}{tm}")
+            text_out = "📌 Записал *{}* задачи:\n\n".format(len(created_tasks)) + "\n".join(lines)
+            await msg.edit_text(text_out, parse_mode="Markdown")
+    else:
+        emoji, title = "📌", text
+        if len(text) > 1 and not text[0].isalnum():
+            emoji, title = text[0], text[1:].strip()
+        db.create_task(uid, title, emoji)
+        kb = [[InlineKeyboardButton("📋 Задачи", callback_data="cmd:tasks")]]
+        await update.message.reply_text(f"📌 Записал: *{title}*\n\n_Добавь ANTHROPIC\\_API\\_KEY для умного распознавания_",
+                                        parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+
+# ── /start ────────────────────────────────────────────────────────────────
+
+async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    name = update.effective_user.first_name
+    ai_status = "🤖 AI активен" if ai_available() else "💡 Базовый режим"
+
+    text = (
+        f"👋 Привет, *{name}*!\n\n"
+        f"Я — *Planify*, твой личный ИИ-планировщик.\n\n"
+        f"🧠 *Что умею:*\n"
+        f"• Записываю задачи в свободной форме\n"
+        f"• Напоминаю звонком за час до встречи\n"
+        f"• Слежу за привычками и стриками 🔥\n"
+        f"• Делаю утренний дайджест в 9:00\n\n"
+        f"💬 *Просто напиши:*\n"
+        f"_«Встреча с Андреем завтра в 9:00»_\n"
+        f"_«Купить шины в четверг, срочно»_\n\n"
+        f"{ai_status} · Всё готово 🚀"
+    )
+
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📋 Задачи", callback_data="cmd:tasks"),
+            InlineKeyboardButton("🎯 Привычки", callback_data="cmd:habits"),
+        ],
+        [
+            InlineKeyboardButton("📊 Прогресс", callback_data="cmd:progress"),
+            InlineKeyboardButton("🌐 Дашборд", callback_data="cmd:web"),
+        ],
+        [
+            InlineKeyboardButton("➕ Добавить задачу", callback_data="cmd:addtask"),
+            InlineKeyboardButton("🎯 Добавить привычку", callback_data="cmd:addhabit"),
+        ],
+        [
+            InlineKeyboardButton("📅 Календарь", callback_data="cmd:calendar"),
+            InlineKeyboardButton("📞 Мой номер", callback_data="cmd:setphone"),
+        ],
+    ])
+
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+
+# ── /web ─────────────────────────────────────────────────────────────────
+
+async def web_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    token = db.get_web_token(update.effective_user.id)
+    kb = [[InlineKeyboardButton("🌐 Открыть дашборд", url=f"{WEBHOOK_URL}?token={token}")]]
+    await update.message.reply_text("Ваш персональный дашборд:", reply_markup=InlineKeyboardMarkup(kb))
+
+# ── /habits ───────────────────────────────────────────────────────────────
+
+async def habits_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    uid = update.effective_user.id
+    today = get_today()
+    habits = db.get_habits(uid)
+    logs = db.get_today_logs(uid, today)
+    done_ids = {l["habit_id"] for l in logs}
+    if not habits:
+        await update.message.reply_text("Привычек нет. Добавьте командой /addhabit")
+        return
+    done = sum(1 for h in habits if h["id"] in done_ids)
+    pct = round(done / len(habits) * 100)
+    buttons = []
+    for h in habits:
+        is_done = h["id"] in done_ids
+        streak = h.get("current_streak", 0)
+        streak_text = f" 🔥{streak}" if streak > 1 else ""
+        buttons.append([
+            InlineKeyboardButton(
+                f"{'✅' if is_done else '⬜'} {h['emoji']} {h['name']}{streak_text}",
+                callback_data=f"toggle_habit:{h['id']}:{today}"
+            ),
+            InlineKeyboardButton("⚙️", callback_data=f"habit_settings:{h['id']}"),
+        ])
+    buttons.append([InlineKeyboardButton("➕ Добавить привычку", callback_data="cmd:addhabit")])
+    await update.message.reply_text(f"📅 *Привычки на сегодня* — {pct}%\n", parse_mode="Markdown",
+                                    reply_markup=InlineKeyboardMarkup(buttons))
+
+async def toggle_habit_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, habit_id, date_str = query.data.split(":", 2)
+    uid = update.effective_user.id
+    is_done = db.toggle_habit(habit_id, uid, date_str)
+    # Обновляем стрик если отметили
+    if is_done:
+        streak, best = db.calculate_streak(habit_id, uid)
+        db.update_streak(habit_id, uid, streak, best, date_str)
+    habits = db.get_habits(uid)
+    logs = db.get_today_logs(uid, date_str)
+    done_ids = {l["habit_id"] for l in logs}
+    done = sum(1 for h in habits if h["id"] in done_ids)
+    pct = round(done / len(habits) * 100) if habits else 0
+    buttons = [[InlineKeyboardButton(
+        f"{'✅' if h['id'] in done_ids else '⬜'} {h['emoji']} {h['name']}",
+        callback_data=f"toggle_habit:{h['id']}:{date_str}")] for h in habits]
+    buttons.append([InlineKeyboardButton("➕ Добавить привычку", callback_data="cmd:addhabit")])
+    await query.edit_message_text(f"📅 *Привычки на сегодня* — {pct}%\n", parse_mode="Markdown",
+                                  reply_markup=InlineKeyboardMarkup(buttons))
+
+# ── /tasks ────────────────────────────────────────────────────────────────
+
+async def tasks_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    uid = update.effective_user.id
+    tasks = db.get_tasks(uid, completed=False)
+    if not tasks:
+        await update.message.reply_text("Задач нет! Просто напиши мне что нужно сделать 💬")
+        return
+    today = date.today()
+    buttons = []
+    for t in tasks:
+        days_str = ""
+        if t["deadline"]:
+            delta = (date.fromisoformat(t["deadline"]) - today).days
+            if delta < 0:
+                days_str = " · ⚠️просрочено"
+            elif delta == 0:
+                days_str = " · сегодня"
+            else:
+                days_str = f" · {delta}д"
+        icon = {"urgent": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(t["priority"], "⚪")
+        label = f"{icon} {t['emoji']} {t['title']}{days_str}"[:55]
+        buttons.append([
+            InlineKeyboardButton("✅", callback_data=f"task_done:{t['id']}"),
+            InlineKeyboardButton(label, callback_data=f"task_view:{t['id']}"),
+            InlineKeyboardButton("🗑", callback_data=f"task_del:{t['id']}"),
+        ])
+    await update.message.reply_text(f"📋 *Задачи* ({len(tasks)})\n\n_Нажми ✅ чтобы выполнить_", parse_mode="Markdown",
+                                    reply_markup=InlineKeyboardMarkup(buttons))
+
+async def task_action_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = update.effective_user.id
+    if query.data.startswith("task_done:"):
+        db.toggle_task(query.data.split(":")[1], uid)
+        await query.edit_message_text("✅ Задача выполнена! 🎉")
+    elif query.data.startswith("task_view:"):
+        task_id = query.data.split(":")[1]
+        tasks = db.get_tasks(uid)
+        t = next((x for x in tasks if x["id"] == task_id), None)
+        if t:
+            today = date.today()
+            dl = ""
+            if t["deadline"]:
+                delta = (date.fromisoformat(t["deadline"]) - today).days
+                dl = f"\n📅 Дедлайн: {t['deadline']}"
+                if delta < 0: dl += f" (просрочено на {abs(delta)}д)"
+                elif delta == 0: dl += " (сегодня!)"
+                else: dl += f" (через {delta}д)"
+            time_str = f"\n⏰ Время: {t.get('time', '')}" if t.get("time") else ""
+            icon = {"urgent": "🔴 Срочно", "high": "🟠 Высокий", "medium": "🟡 Средний", "low": "🟢 Низкий"}.get(t["priority"], "")
+            cat = {"work": "💼 Работа", "personal": "👤 Личное", "health": "🏃 Здоровье", "learning": "📚 Учёба"}.get(t["category"], "")
+            kb = [[InlineKeyboardButton("✅ Выполнить", callback_data=f"task_done:{task_id}"),
+                   InlineKeyboardButton("🗑 Удалить", callback_data=f"task_del:{task_id}")],
+                  [InlineKeyboardButton("← Назад", callback_data="cmd:tasks")]]
+            await query.edit_message_text(
+                f"*{t['emoji']} {t['title']}*{dl}{time_str}\n🎯 {icon}\n🗂 {cat}",
+                parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    elif query.data.startswith("task_del:"):
+        db.delete_task(query.data.split(":")[1], uid)
+        await query.edit_message_text("🗑 Удалено.")
+    elif query.data == "ai_ok":
+        await query.edit_message_reply_markup(None)
+
+# ── /addhabit conversation ─────────────────────────────────────────────────
+
+async def addhabit_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    msg = update.callback_query.message if update.callback_query else update.message
+    if update.callback_query: await update.callback_query.answer()
+    await msg.reply_text("Введите название привычки:\n_(например: 🏃 Пробежка 30 мин)_", parse_mode="Markdown")
+    return WAITING_HABIT_NAME
+
+async def addhabit_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    emoji, name = ("✅", text) if not text or text[0].isalnum() else (text[0], text[1:].strip())
+    db.create_habit(update.effective_user.id, name, emoji)
+    await update.message.reply_text(f"✅ Привычка *{emoji} {name}* добавлена!", parse_mode="Markdown")
+    return ConversationHandler.END
+
+# ── /addtask conversation ──────────────────────────────────────────────────
+
+async def addtask_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    msg = update.callback_query.message if update.callback_query else update.message
+    if update.callback_query: await update.callback_query.answer()
+    await msg.reply_text("📝 Название задачи:")
+    return WAITING_TASK_TITLE
+
+async def addtask_title(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    emoji, title = ("📌", text) if not text or text[0].isalnum() else (text[0], text[1:].strip())
+    ctx.user_data["task"] = {"title": title, "emoji": emoji}
+    kb = [[InlineKeyboardButton("Сегодня", callback_data="dl:today"), InlineKeyboardButton("Завтра", callback_data="dl:tomorrow")],
+          [InlineKeyboardButton("Через 3 дня", callback_data="dl:3"), InlineKeyboardButton("Через неделю", callback_data="dl:7")],
+          [InlineKeyboardButton("Без дедлайна", callback_data="dl:none")]]
+    await update.message.reply_text("📅 Дедлайн:", reply_markup=InlineKeyboardMarkup(kb))
+    return WAITING_TASK_DEADLINE
+
+async def addtask_deadline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    val = query.data.split(":")[1]
+    today = date.today()
+    deadline = {"today": today.isoformat(), "tomorrow": (today + timedelta(1)).isoformat()}.get(val)
+    if val.isdigit(): deadline = (today + timedelta(int(val))).isoformat()
+    ctx.user_data["task"]["deadline"] = deadline
+    kb = [[InlineKeyboardButton("🔴 Срочно", callback_data="pr:urgent"), InlineKeyboardButton("🟠 Высокий", callback_data="pr:high")],
+          [InlineKeyboardButton("🟡 Средний", callback_data="pr:medium"), InlineKeyboardButton("🟢 Низкий", callback_data="pr:low")]]
+    await query.edit_message_text("🎯 Приоритет:", reply_markup=InlineKeyboardMarkup(kb))
+    return WAITING_TASK_PRIORITY
+
+async def addtask_priority(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    task = ctx.user_data["task"]
+    task["priority"] = query.data.split(":")[1]
+    db.create_task(update.effective_user.id, task["title"], task["emoji"], task["deadline"], task["priority"])
+    dl = f"\n📅 {task['deadline']}" if task["deadline"] else ""
+    await query.edit_message_text(f"✅ Задача добавлена!\n\n*{task['emoji']} {task['title']}*{dl}\n{PRIORITY_MAP.get(task['priority'], '')}",
+                                  parse_mode="Markdown")
+    return ConversationHandler.END
+
+async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Отменено.")
+    return ConversationHandler.END
+
+
+async def calendar_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Команда /calendar — ссылка на подписку календаря"""
+    ensure_user(update)
+    uid = update.effective_user.id
+    token = db.get_web_token(uid)
+    base_url = WEBHOOK_URL or "https://planify-production-6462.up.railway.app"
     
-    return Response(
-        content=ical_text,
-        media_type="text/calendar; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="planify.ics"'}
+    ical_url = f"{base_url}/calendar/{token}.ics"
+    webcal_url = ical_url.replace("https://", "webcal://").replace("http://", "webcal://")
+    google_url = f"https://calendar.google.com/calendar/r?cid={ical_url}"
+    
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📱 Добавить на iPhone/Mac", url=webcal_url)],
+        [InlineKeyboardButton("🗓 Добавить в Google Calendar", url=google_url)],
+        [InlineKeyboardButton("📋 Скопировать iCal URL", url=ical_url)],
+    ])
+    
+    await update.message.reply_text(
+        "📅 *Подписка на календарь Planify*\n\n"
+        "Все задачи с дедлайнами появятся в родном Календаре!\n\n"
+        "Выбери платформу:",
+        parse_mode="Markdown",
+        reply_markup=kb
     )
 
 
-# ── Google Calendar OAuth ──────────────────────────────────────────────────
+async def setphone(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Команда /setphone +79001234567"""
+    ensure_user(update)
+    uid = update.effective_user.id
+    args = ctx.args
+    if not args:
+        await update.message.reply_text("Укажите номер телефона: /setphone +79001234567")
+        return
+    phone = args[0].strip()
+    from app.database import supabase
+    supabase.table("users").update({"phone": phone}).eq("id", uid).execute()
+    await update.message.reply_text(f"Номер сохранён: {phone}. Буду звонить за час до задач!")
 
-@app.get("/api/google/auth-url")
-async def google_auth_url(token: str):
-    import os, urllib.parse
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    
-    client_id = os.getenv("GOOGLE_CLIENT_ID", "")
-    if not client_id:
-        raise HTTPException(400, "Google OAuth не настроен")
-    
-    base_url = os.getenv("WEBHOOK_URL", "")
-    redirect_uri = f"{base_url}/api/google/callback"
-    
-    params = {
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-        "response_type": "code",
-        "scope": "https://www.googleapis.com/auth/calendar",
-        "access_type": "offline",
-        "prompt": "consent",
-        "state": token,
-    }
-    url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
-    return {"url": url}
+# ── /progress ─────────────────────────────────────────────────────────────
 
+async def progress(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    uid = update.effective_user.id
+    stats = db.get_stats(uid, get_today(), get_week_start())
+    bar = lambda p: "█" * (p // 10) + "░" * (10 - p // 10)
+    await update.message.reply_text(
+        f"📊 *Прогресс*\n\n"
+        f"*Сегодня:* {stats['today_pct']}%\n`{bar(stats['today_pct'])}`\n"
+        f"{stats['habits_done_today']}/{stats['habits_total']} привычек\n\n"
+        f"*Неделя:* {stats['week_pct']}%\n`{bar(stats['week_pct'])}`\n\n"
+        f"*Задачи:*\n⏳ {stats['tasks_pending']} в работе · ✅ {stats['tasks_done']} выполнено",
+        parse_mode="Markdown")
 
-@app.get("/api/google/callback")
-async def google_callback(code: str, state: str):
-    import os, httpx
-    from fastapi.responses import HTMLResponse
-    
-    user = db.get_user_by_token(state)
-    if not user:
-        return HTMLResponse("<script>window.close()</script>")
-    
-    client_id = os.getenv("GOOGLE_CLIENT_ID", "")
-    client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "")
-    base_url = os.getenv("WEBHOOK_URL", "")
-    redirect_uri = f"{base_url}/api/google/callback"
-    
-    async with httpx.AsyncClient() as client:
-        resp = await client.post("https://oauth2.googleapis.com/token", data={
-            "code": code, "client_id": client_id, "client_secret": client_secret,
-            "redirect_uri": redirect_uri, "grant_type": "authorization_code",
-        })
-    
-    tokens = resp.json()
-    if "access_token" in tokens:
-        from app.database import supabase
-        supabase.table("users").update({
-            "google_access_token": tokens.get("access_token"),
-            "google_refresh_token": tokens.get("refresh_token"),
-        }).eq("id", user["id"]).execute()
-        return HTMLResponse("<html><body><script>window.opener.location.reload();window.close();</script><p>✅ Google Calendar подключён! Окно закроется автоматически.</p></body></html>")
-    
-    return HTMLResponse("<p>❌ Ошибка авторизации</p>")
+# ── Callbacks ─────────────────────────────────────────────────────────────
 
+async def reminder_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = update.effective_user.id
+    parts = query.data.split(":")
+    action, task_id = parts[0], parts[1]
 
-@app.post("/api/google/sync")
-async def google_sync(token: str):
-    import os, httpx
-    from datetime import date, datetime, timedelta
-    
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    
-    access_token = user.get("google_access_token")
-    if not access_token:
-        raise HTTPException(400, "Google Calendar не подключён")
-    
-    tasks = db.get_tasks(user["id"], completed=False)
-    synced = 0
-    errors = []
-    
-    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-    
-    async with httpx.AsyncClient(timeout=15) as client:
-        for t in tasks:
-            if not t.get("deadline"):
-                continue
-            try:
-                dl = t["deadline"]
-                emoji = t.get("emoji", "📌")
-                title = f"{emoji} {t.get('title', '')}"
-                
-                event = {
-                    "summary": title,
-                    "description": f"Создано в Planify. Приоритет: {t.get('priority','medium')}",
-                    "colorId": {"urgent":"11","high":"6","medium":"5","low":"2"}.get(t.get("priority","medium"),"5"),
-                }
-                
-                if t.get("reminder_time"):
-                    h, m = map(int, t["reminder_time"].split(":"))
-                    start_dt = f"{dl}T{h:02d}:{m:02d}:00"
-                    end_dt_obj = datetime.strptime(start_dt, "%Y-%m-%dT%H:%M:%S") + timedelta(hours=1)
-                    end_dt = end_dt_obj.strftime("%Y-%m-%dT%H:%M:%S")
-                    event["start"] = {"dateTime": start_dt, "timeZone": "Europe/Moscow"}
-                    event["end"] = {"dateTime": end_dt, "timeZone": "Europe/Moscow"}
-                    event["reminders"] = {"useDefault": False, "overrides": [{"method":"popup","minutes":60}]}
-                else:
-                    event["start"] = {"date": dl}
-                    event["end"] = {"date": dl}
-                
-                resp = await client.post(
-                    "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-                    headers=headers, json=event
-                )
-                if resp.status_code in [200, 201]:
-                    synced += 1
-                else:
-                    errors.append(t.get("title",""))
-            except Exception as e:
-                errors.append(str(e))
-    
-    return {"synced": synced, "errors": errors, "total": len([t for t in tasks if t.get("deadline")])}
+    if action == "rem_ok":
+        await query.edit_message_text("✅ Отлично! Удачи на встрече!")
+    elif action == "rem_snooze30":
+        from datetime import datetime, timedelta
+        import pytz
+        tz = pytz.timezone("Europe/Moscow")
+        new_time = (datetime.now(tz) + timedelta(minutes=90)).strftime("%H:%M")
+        db.set_reminder_time(task_id, uid, new_time)
+        db.unmark_reminded(task_id)
+        await query.edit_message_text(f"⏰ Напомню в {new_time}")
+    elif action == "rem_snooze60":
+        from datetime import datetime, timedelta
+        import pytz
+        tz = pytz.timezone("Europe/Moscow")
+        new_time = (datetime.now(tz) + timedelta(minutes=120)).strftime("%H:%M")
+        db.set_reminder_time(task_id, uid, new_time)
+        db.unmark_reminded(task_id)
+        await query.edit_message_text(f"⏰ Напомню в {new_time}")
+    elif action == "rem_cancel":
+        db.delete_task(task_id, uid)
+        await query.edit_message_text("🗑 Задача удалена.")
 
 
-# ── Test call ─────────────────────────────────────────────────────────────
+async def habit_settings_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Настройки конкретной привычки"""
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split(":")
+    action = parts[0]
+    habit_id = parts[1] if len(parts) > 1 else None
+    uid = update.effective_user.id
 
-@app.post("/api/call/test")
-async def test_call(request: Request, token: str):
-    user = db.get_user_by_token(token)
-    if not user:
-        raise HTTPException(401)
-    
-    phone = user.get("phone")
-    if not phone:
-        raise HTTPException(400, "Номер телефона не установлен. Используйте /setphone в боте.")
-    
-    # Собираем задачи на сегодня
-    from datetime import date
-    today = date.today().isoformat()
-    tasks = db.get_tasks(user["id"], completed=False)
-    habits = db.get_habits(user["id"])
-    today_tasks = [t for t in tasks if t.get("deadline") == today]
-    
-    # Генерируем текст
-    name = user.get("first_name", "")
-    text_parts = [f"Добрый день, {name}!" if name else "Добрый день!"]
-    
-    if today_tasks:
-        text_parts.append(f"На сегодня у вас {len(today_tasks)} задач.")
-        for t in today_tasks[:3]:
-            time_str = f"в {t['reminder_time']}" if t.get("reminder_time") else ""
-            text_parts.append(f"{t['title']} {time_str}.")
-    else:
-        text_parts.append("На сегодня задач нет.")
-    
-    if habits:
-        done_logs = db.get_today_logs(user["id"], today)
-        done_ids = {l["habit_id"] for l in done_logs}
-        not_done = [h for h in habits if h["id"] not in done_ids]
-        if not_done:
-            text_parts.append(f"Также не забудьте про привычки: {', '.join([h['name'] for h in not_done[:3]])}.")
-    
-    text_parts.append("Удачного дня!")
-    call_text = " ".join(text_parts)
-    
-    # Звоним
-    from app.caller import make_call
-    task_mock = {"title": "Дайджест дня", "reminder_time": "", "emoji": "📞", "id": "test"}
-    
-    import httpx, os
-    ZVONOK_API_KEY = os.getenv("ZVONOK_API_KEY", "")
-    ZVONOK_CAMPAIGN_ID = os.getenv("ZVONOK_CAMPAIGN_ID", "")
-    
-    if not ZVONOK_API_KEY:
-        return {"success": False, "error": "Zvonok не настроен", "text": call_text}
-    
-    phone_clean = "".join(filter(str.isdigit, phone))
-    if phone_clean.startswith("8"):
-        phone_clean = "7" + phone_clean[1:]
-    if not phone_clean.startswith("7"):
-        phone_clean = "7" + phone_clean
-    
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                "https://zvonok.com/manager/cabapi_external/api/v1/phones/call/",
-                data={"public_key": ZVONOK_API_KEY, "campaign_id": ZVONOK_CAMPAIGN_ID,
-                      "phone": phone_clean, "text": call_text}
-            )
-        result = resp.json()
-        success = result.get("status") == "ok" or bool(result.get("call_id"))
-        return {"success": success, "text": call_text, "phone": phone, "zvonok": result}
-    except Exception as e:
-        return {"success": False, "error": str(e), "text": call_text}
+    if action == "habit_snooze":
+        await query.edit_message_text("⏰ Напомню через 30 минут!")
+    elif action == "habit_settings":
+        habits = db.get_habits(uid)
+        habit = next((h for h in habits if h["id"] == habit_id), None)
+        if not habit:
+            return
+        streak = habit.get("current_streak", 0)
+        best = habit.get("best_streak", 0)
+        rem_time = habit.get("reminder_time", "не задано")
+        kb = [
+            [InlineKeyboardButton("⏰ Время напоминания", callback_data=f"habit_set_time:{habit_id}")],
+            [InlineKeyboardButton("📅 Дни недели", callback_data=f"habit_set_days:{habit_id}")],
+            [InlineKeyboardButton("← Назад", callback_data="cmd:habits")],
+        ]
+        await query.edit_message_text(
+            f"⚙️ *{habit['emoji']} {habit['name']}*\n\n🔥 Стрик: *{streak} дней*\n🏆 Рекорд: *{best} дней*\n⏰ Напоминание: *{rem_time}*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
 
 
-# ── Serve Frontend ────────────────────────────────────────────────────────
+async def cmd_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cmd = query.data.split(":")[1]
+    if cmd == "habits": await habits_today(update, ctx)
+    elif cmd == "tasks": await tasks_list(update, ctx)
+    elif cmd == "progress":
+        # Имитируем update.message для progress
+        class FakeUpdate:
+            effective_user = query.from_user
+            message = query.message
+        await progress(FakeUpdate(), ctx)
+    elif cmd == "web":
+        class FakeUpdate:
+            effective_user = query.from_user
+            message = query.message
+        await web_link(FakeUpdate(), ctx)
+    elif cmd == "calendar":
+        class FakeUpdate:
+            effective_user = query.from_user
+            message = query.message
+        await calendar_cmd(FakeUpdate(), ctx)
+    elif cmd == "setphone":
+        await query.message.reply_text("Отправьте: /setphone +79001234567")
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+# ── Build app ─────────────────────────────────────────────────────────────
 
+def build_application() -> Application:
+    app = Application.builder().token(BOT_TOKEN).build()
 
-if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    habit_conv = ConversationHandler(
+        entry_points=[CommandHandler("addhabit", addhabit_start), CallbackQueryHandler(addhabit_start, pattern="^cmd:addhabit$")],
+        states={WAITING_HABIT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, addhabit_name)]},
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    task_conv = ConversationHandler(
+        entry_points=[CommandHandler("addtask", addtask_start), CallbackQueryHandler(addtask_start, pattern="^cmd:addtask$")],
+        states={
+            WAITING_TASK_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, addtask_title)],
+            WAITING_TASK_DEADLINE: [CallbackQueryHandler(addtask_deadline, pattern="^dl:")],
+            WAITING_TASK_PRIORITY: [CallbackQueryHandler(addtask_priority, pattern="^pr:")],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("habits", habits_today))
+    app.add_handler(CommandHandler("tasks", tasks_list))
+    app.add_handler(CommandHandler("progress", progress))
+    app.add_handler(CommandHandler("web", web_link))
+    app.add_handler(CommandHandler("setphone", setphone))
+    app.add_handler(CommandHandler("calendar", calendar_cmd))
+    app.add_handler(habit_conv)
+    app.add_handler(task_conv)
+    app.add_handler(CallbackQueryHandler(toggle_habit_callback, pattern="^toggle_habit:"))
+    app.add_handler(CallbackQueryHandler(task_action_callback, pattern="^(task_done|task_view|task_del|ai_ok)"))
+    app.add_handler(CallbackQueryHandler(habit_settings_callback, pattern="^habit_(snooze|settings|set_time|set_days):"))
+    app.add_handler(CallbackQueryHandler(reminder_callback, pattern="^rem_"))
+    app.add_handler(CallbackQueryHandler(cmd_callback, pattern="^cmd:"))
+    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))
+
+    return app
