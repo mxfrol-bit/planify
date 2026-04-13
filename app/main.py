@@ -297,6 +297,264 @@ async def ai_chat(request: Request, token: str):
         raise HTTPException(500, str(e))
 
 
+# ── iCal Calendar feed ────────────────────────────────────────────────────
+
+@app.get("/calendar/{token}.ics")
+async def get_ical(token: str):
+    from fastapi.responses import Response
+    from datetime import date, datetime, timedelta
+    import uuid
+    
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(404)
+    
+    tasks = db.get_tasks(user["id"], completed=False)
+    habits = db.get_habits(user["id"])
+    name = user.get("first_name", "Planify")
+    
+    now = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Planify//RU",
+        f"X-WR-CALNAME:Planify — {name}",
+        "X-WR-TIMEZONE:Europe/Moscow",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALDESC:Задачи и привычки из Planify",
+    ]
+    
+    # Tasks as events
+    for t in tasks:
+        if not t.get("deadline"):
+            continue
+        dl = t["deadline"]
+        uid_str = f"{t['id']}@planify"
+        
+        # Date/time
+        if t.get("reminder_time"):
+            try:
+                h, m = map(int, t["reminder_time"].split(":"))
+                # Convert Moscow to UTC (UTC+3)
+                dt = datetime.strptime(dl, "%Y-%m-%d").replace(hour=h, minute=m)
+                dt_utc = dt - timedelta(hours=3)
+                dtstart = dt_utc.strftime("%Y%m%dT%H%M%SZ")
+                dtend = (dt_utc + timedelta(hours=1)).strftime("%Y%m%dT%H%M%SZ")
+                alarm_dt = (dt_utc - timedelta(hours=1)).strftime("%Y%m%dT%H%M%SZ")
+                has_time = True
+            except:
+                has_time = False
+        else:
+            has_time = False
+        
+        priority_map = {"urgent": 1, "high": 3, "medium": 5, "low": 9}
+        prio = priority_map.get(t.get("priority", "medium"), 5)
+        emoji = t.get("emoji", "📌")
+        title = f"{emoji} {t.get('title', '')}"
+        
+        lines += ["BEGIN:VEVENT", f"UID:{uid_str}", f"DTSTAMP:{now}"]
+        
+        if has_time:
+            lines += [f"DTSTART:{dtstart}", f"DTEND:{dtend}"]
+        else:
+            dl_fmt = dl.replace("-", "")
+            lines += [f"DTSTART;VALUE=DATE:{dl_fmt}",
+                      f"DTEND;VALUE=DATE:{dl_fmt}"]
+        
+        lines += [
+            f"SUMMARY:{title}",
+            f"PRIORITY:{prio}",
+            f"CATEGORIES:{t.get('category','personal').upper()}",
+        ]
+        
+        if has_time:
+            lines += [
+                "BEGIN:VALARM",
+                "TRIGGER:-PT60M",
+                "ACTION:DISPLAY",
+                f"DESCRIPTION:Напоминание: {title}",
+                "END:VALARM",
+            ]
+        
+        lines.append("END:VEVENT")
+    
+    # Habits as recurring events (today only - simplified)
+    today = date.today()
+    for h in habits:
+        if not h.get("reminder_time"):
+            continue
+        try:
+            hr, mn = map(int, h["reminder_time"].split(":"))
+            dt = datetime(today.year, today.month, today.day, hr, mn)
+            dt_utc = dt - timedelta(hours=3)
+            dtstart = dt_utc.strftime("%Y%m%dT%H%M%SZ")
+            dtend = (dt_utc + timedelta(minutes=30)).strftime("%Y%m%dT%H%M%SZ")
+            emoji = h.get("emoji", "✅")
+            title = f"{emoji} {h.get('name', '')}"
+            uid_str = f"habit-{h['id']}@planify"
+            
+            days_map = {"0":"MO","1":"TU","2":"WE","3":"TH","4":"FR","5":"SA","6":"SU"}
+            rd = h.get("reminder_days", "all")
+            if rd == "all":
+                rrule = "RRULE:FREQ=DAILY"
+            else:
+                byday = ",".join([days_map[d] for d in rd.split(",") if d in days_map])
+                rrule = f"RRULE:FREQ=WEEKLY;BYDAY={byday}"
+            
+            lines += [
+                "BEGIN:VEVENT",
+                f"UID:{uid_str}",
+                f"DTSTAMP:{now}",
+                f"DTSTART:{dtstart}",
+                f"DTEND:{dtend}",
+                f"SUMMARY:{title}",
+                rrule,
+                "CATEGORIES:HABIT",
+                "BEGIN:VALARM",
+                "TRIGGER:-PT5M",
+                "ACTION:DISPLAY",
+                f"DESCRIPTION:{title}",
+                "END:VALARM",
+                "END:VEVENT",
+            ]
+        except:
+            continue
+    
+    lines.append("END:VCALENDAR")
+    ical_text = "
+".join(lines) + "
+"
+    
+    return Response(
+        content=ical_text,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="planify.ics"'}
+    )
+
+
+# ── Google Calendar OAuth ──────────────────────────────────────────────────
+
+@app.get("/api/google/auth-url")
+async def google_auth_url(token: str):
+    import os, urllib.parse
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "")
+    if not client_id:
+        raise HTTPException(400, "Google OAuth не настроен")
+    
+    base_url = os.getenv("WEBHOOK_URL", "")
+    redirect_uri = f"{base_url}/api/google/callback"
+    
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "https://www.googleapis.com/auth/calendar",
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": token,
+    }
+    url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
+    return {"url": url}
+
+
+@app.get("/api/google/callback")
+async def google_callback(code: str, state: str):
+    import os, httpx
+    from fastapi.responses import HTMLResponse
+    
+    user = db.get_user_by_token(state)
+    if not user:
+        return HTMLResponse("<script>window.close()</script>")
+    
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    base_url = os.getenv("WEBHOOK_URL", "")
+    redirect_uri = f"{base_url}/api/google/callback"
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post("https://oauth2.googleapis.com/token", data={
+            "code": code, "client_id": client_id, "client_secret": client_secret,
+            "redirect_uri": redirect_uri, "grant_type": "authorization_code",
+        })
+    
+    tokens = resp.json()
+    if "access_token" in tokens:
+        from app.database import supabase
+        supabase.table("users").update({
+            "google_access_token": tokens.get("access_token"),
+            "google_refresh_token": tokens.get("refresh_token"),
+        }).eq("id", user["id"]).execute()
+        return HTMLResponse("<html><body><script>window.opener.location.reload();window.close();</script><p>✅ Google Calendar подключён! Окно закроется автоматически.</p></body></html>")
+    
+    return HTMLResponse("<p>❌ Ошибка авторизации</p>")
+
+
+@app.post("/api/google/sync")
+async def google_sync(token: str):
+    import os, httpx
+    from datetime import date, datetime, timedelta
+    
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    
+    access_token = user.get("google_access_token")
+    if not access_token:
+        raise HTTPException(400, "Google Calendar не подключён")
+    
+    tasks = db.get_tasks(user["id"], completed=False)
+    synced = 0
+    errors = []
+    
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+    
+    async with httpx.AsyncClient(timeout=15) as client:
+        for t in tasks:
+            if not t.get("deadline"):
+                continue
+            try:
+                dl = t["deadline"]
+                emoji = t.get("emoji", "📌")
+                title = f"{emoji} {t.get('title', '')}"
+                
+                event = {
+                    "summary": title,
+                    "description": f"Создано в Planify. Приоритет: {t.get('priority','medium')}",
+                    "colorId": {"urgent":"11","high":"6","medium":"5","low":"2"}.get(t.get("priority","medium"),"5"),
+                }
+                
+                if t.get("reminder_time"):
+                    h, m = map(int, t["reminder_time"].split(":"))
+                    start_dt = f"{dl}T{h:02d}:{m:02d}:00"
+                    end_dt_obj = datetime.strptime(start_dt, "%Y-%m-%dT%H:%M:%S") + timedelta(hours=1)
+                    end_dt = end_dt_obj.strftime("%Y-%m-%dT%H:%M:%S")
+                    event["start"] = {"dateTime": start_dt, "timeZone": "Europe/Moscow"}
+                    event["end"] = {"dateTime": end_dt, "timeZone": "Europe/Moscow"}
+                    event["reminders"] = {"useDefault": False, "overrides": [{"method":"popup","minutes":60}]}
+                else:
+                    event["start"] = {"date": dl}
+                    event["end"] = {"date": dl}
+                
+                resp = await client.post(
+                    "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+                    headers=headers, json=event
+                )
+                if resp.status_code in [200, 201]:
+                    synced += 1
+                else:
+                    errors.append(t.get("title",""))
+            except Exception as e:
+                errors.append(str(e))
+    
+    return {"synced": synced, "errors": errors, "total": len([t for t in tasks if t.get("deadline")])}
+
+
 # ── Test call ─────────────────────────────────────────────────────────────
 
 @app.post("/api/call/test")

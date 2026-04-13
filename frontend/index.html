@@ -393,6 +393,35 @@ select option{background:var(--s2);}
       <div style="background:var(--s2);border-radius:8px;padding:10px;font-size:13px" id="phone-display">Номер не установлен</div>
     </div>
     <div class="card">
+      <b style="display:block;margin-bottom:12px">📅 iCal подписка (iPhone / Mac)</b>
+      <p style="color:var(--mt);font-size:13px;margin-bottom:12px">Добавьте календарь Planify в iPhone, Mac или любое приложение поддерживающее iCal. Все задачи с дедлайнами появятся автоматически.</p>
+      <div style="background:var(--s2);border-radius:8px;padding:10px;font-size:12px;font-family:monospace;word-break:break-all;color:var(--ac2)" id="ical-url">Загрузка...</div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-p btn-sm" onclick="copyIcal()">📋 Скопировать URL</button>
+        <button class="btn btn-g btn-sm" onclick="openIcal()">📱 Открыть в календаре</button>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-g btn-sm" onclick="addToApple()">🍎 iPhone / Mac</button>
+        <button class="btn btn-g btn-sm" onclick="addToGoogle()">🗓 Google Calendar</button>
+        <button class="btn btn-g btn-sm" onclick="addToOutlook()">📧 Outlook</button>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:var(--mt)">
+        iPhone: Настройки → Почта → Учётные записи → Другое → Подписка на календарь<br>
+        Или нажмите кнопку выше — откроется автоматически
+      </div>
+    </div>
+    <div class="card">
+      <b style="display:block;margin-bottom:12px">🗓 Google Calendar</b>
+      <p style="color:var(--mt);font-size:13px;margin-bottom:12px">Синхронизируйте задачи с Google Calendar. Все задачи с дедлайнами создадутся как события.</p>
+      <div id="gcal-status" style="margin-bottom:12px;font-size:13px;color:var(--mt)">Проверяем статус...</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-p btn-sm" id="gcal-btn" onclick="connectGoogle()">🔗 Подключить Google</button>
+        <button class="btn btn-g btn-sm" id="gcal-sync-btn" onclick="syncGoogle()" style="display:none">🔄 Синхронизировать</button>
+      </div>
+      <div id="gcal-result" style="margin-top:10px;display:none"></div>
+      <div style="margin-top:10px;font-size:12px;color:var(--mt)">⚠️ Требуется настройка GOOGLE_CLIENT_ID и GOOGLE_CLIENT_SECRET в Railway Variables</div>
+    </div>
+    <div class="card">
       <b style="display:block;margin-bottom:12px">💡 Идеи для развития</b>
       <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--mt)">
         <div>🗓 <b style="color:var(--tx)">Синхронизация с Google Calendar</b> — импорт/экспорт событий</div>
@@ -482,7 +511,7 @@ function go(name,el){
   if(name==='habits')loadHabits();
   if(name==='tasks'){document.getElementById('kanban-view').style.display='block';document.getElementById('tasks-list').style.display='none';loadTasks();}
   if(name==='analytics')loadAnalytics();
-  if(name==='settings'){document.getElementById('token-display').textContent=TOKEN||'нет';loadPhone();}
+  if(name==='settings'){document.getElementById('token-display').textContent=TOKEN||'нет';loadPhone();loadCalendarSettings();}
 }
 function onFab(){
   const a=document.querySelector('.page.active')?.id;
@@ -768,6 +797,70 @@ async function loadPhone(){
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
+// ── Calendar ───────────────────────────────────────────────────────────────
+function getIcalUrl(){return `${location.origin}/calendar/${TOKEN}.ics`;}
+function addToApple(){window.open(`webcal://${location.host}/calendar/${TOKEN}.ics`);}
+function addToGoogle(){window.open(`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(getIcalUrl())}`);}
+function addToOutlook(){window.open(`https://outlook.live.com/calendar/0/addcalendar?url=${encodeURIComponent(getIcalUrl())}`);}
+
+async function loadCalendarSettings(){
+  const url=getIcalUrl();
+  const el=document.getElementById('ical-url');
+  if(el)el.textContent=url;
+  // Check Google status
+  try{
+    const u=await api('/api/me');
+    const status=document.getElementById('gcal-status');
+    const syncBtn=document.getElementById('gcal-sync-btn');
+    if(u&&u.google_access_token){
+      if(status)status.innerHTML='<span style="color:var(--gr)">✅ Google Calendar подключён</span>';
+      if(syncBtn)syncBtn.style.display='inline-flex';
+    }else{
+      if(status)status.textContent='Не подключён';
+    }
+  }catch(e){}
+}
+
+function copyIcal(){
+  navigator.clipboard.writeText(getIcalUrl());
+  toast('URL скопирован!');
+}
+
+function openIcal(){
+  window.open('webcal://'+location.host+'/calendar/'+TOKEN+'.ics');
+}
+
+async function connectGoogle(){
+  try{
+    const data=await api('/api/google/auth-url');
+    if(data.url){
+      window.open(data.url,'google-auth','width=500,height=600');
+    }else if(data.detail){
+      toast(data.detail,false);
+    }
+  }catch(e){toast('Ошибка: '+e.message,false);}
+}
+
+async function syncGoogle(){
+  const btn=document.getElementById('gcal-sync-btn');
+  const res=document.getElementById('gcal-result');
+  btn.textContent='⏳ Синхронизирую...';btn.disabled=true;
+  res.style.display='none';
+  try{
+    const data=await api('/api/google/sync',{method:'POST'});
+    res.style.display='block';
+    res.innerHTML=`<div style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);border-radius:8px;padding:10px;font-size:13px">
+      ✅ Синхронизировано: <b>${data.synced}</b> из ${data.total} задач
+      ${data.errors.length?'<br>❌ Ошибки: '+data.errors.join(', '):''}
+    </div>`;
+    toast('Синхронизация завершена!');
+  }catch(e){
+    res.style.display='block';
+    res.innerHTML=`<div style="color:var(--rd);font-size:13px">Ошибка: ${e.message}</div>`;
+  }
+  btn.textContent='🔄 Синхронизировать';btn.disabled=false;
+}
+
 async function testCall(){
   const btn=document.getElementById('call-btn');
   const res=document.getElementById('call-result');
