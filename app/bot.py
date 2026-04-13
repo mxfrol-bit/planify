@@ -94,31 +94,41 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ensure_user(update)
     name = update.effective_user.first_name
     ai_status = "🤖 AI активен" if ai_available() else "💡 Базовый режим"
-    
+
     text = (
         f"👋 Привет, *{name}*!\n\n"
         f"Я — *Planify*, твой личный ИИ-планировщик.\n\n"
-        f"🧠 *Что я умею:*\n"
-        f"• Записываю задачи голосом и текстом в свободной форме\n"
-        f"• Напоминаю о встречах звонком за час\n"
-        f"• Слежу за твоими привычками и считаю стрики 🔥\n"
-        f"• Планирую день и делаю утренний дайджест\n"
-        f"• Показываю прогресс в красивом дашборде\n\n"
-        f"💬 *Просто напиши мне:*\n"
+        f"🧠 *Что умею:*\n"
+        f"• Записываю задачи в свободной форме\n"
+        f"• Напоминаю звонком за час до встречи\n"
+        f"• Слежу за привычками и стриками 🔥\n"
+        f"• Делаю утренний дайджест в 9:00\n\n"
+        f"💬 *Просто напиши:*\n"
         f"_«Встреча с Андреем завтра в 9:00»_\n"
-        f"_«Купить шины в четверг, срочно»_\n"
-        f"_«Позвонить маме сегодня вечером»_\n\n"
-        f"И я сам разберу дату, время и приоритет!\n\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"📋 /tasks — мои задачи\n"
-        f"🎯 /habits — привычки\n"
-        f"📊 /progress — прогресс\n"
-        f"🌐 /web — открыть дашборд\n"
-        f"📞 /setphone — номер для звонков\n"
-        f"━━━━━━━━━━━━━━━\n\n"
-        f"{ai_status} · Всё готово к работе 🚀"
+        f"_«Купить шины в четверг, срочно»_\n\n"
+        f"{ai_status} · Всё готово 🚀"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📋 Задачи", callback_data="cmd:tasks"),
+            InlineKeyboardButton("🎯 Привычки", callback_data="cmd:habits"),
+        ],
+        [
+            InlineKeyboardButton("📊 Прогресс", callback_data="cmd:progress"),
+            InlineKeyboardButton("🌐 Дашборд", callback_data="cmd:web"),
+        ],
+        [
+            InlineKeyboardButton("➕ Добавить задачу", callback_data="cmd:addtask"),
+            InlineKeyboardButton("🎯 Добавить привычку", callback_data="cmd:addhabit"),
+        ],
+        [
+            InlineKeyboardButton("📅 Календарь", callback_data="cmd:calendar"),
+            InlineKeyboardButton("📞 Мой номер", callback_data="cmd:setphone"),
+        ],
+    ])
+
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
 
 # ── /web ─────────────────────────────────────────────────────────────────
 
@@ -310,6 +320,33 @@ async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def calendar_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Команда /calendar — ссылка на подписку календаря"""
+    ensure_user(update)
+    uid = update.effective_user.id
+    token = db.get_web_token(uid)
+    base_url = WEBHOOK_URL or "https://planify-production-6462.up.railway.app"
+    
+    ical_url = f"{base_url}/calendar/{token}.ics"
+    webcal_url = ical_url.replace("https://", "webcal://").replace("http://", "webcal://")
+    google_url = f"https://calendar.google.com/calendar/r?cid={ical_url}"
+    
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📱 Добавить на iPhone/Mac", url=webcal_url)],
+        [InlineKeyboardButton("🗓 Добавить в Google Calendar", url=google_url)],
+        [InlineKeyboardButton("📋 Скопировать iCal URL", url=ical_url)],
+    ])
+    
+    await update.message.reply_text(
+        "📅 *Подписка на календарь Planify*\n\n"
+        "Все задачи с дедлайнами появятся в родном Календаре!\n\n"
+        "Выбери платформу:",
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+
+
 async def setphone(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Команда /setphone +79001234567"""
     ensure_user(update)
@@ -407,6 +444,14 @@ async def cmd_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     cmd = query.data.split(":")[1]
     if cmd == "habits": await habits_today(update, ctx)
     elif cmd == "tasks": await tasks_list(update, ctx)
+    elif cmd == "progress": await progress(update, ctx)
+    elif cmd == "web": await web_link(update, ctx)
+    elif cmd == "calendar": await calendar_cmd(update, ctx)
+    elif cmd == "setphone":
+        await query.message.reply_text(
+            "📞 Отправьте номер телефона командой:\n`/setphone +79001234567`",
+            parse_mode="Markdown"
+        )
 
 # ── Build app ─────────────────────────────────────────────────────────────
 
@@ -434,6 +479,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("progress", progress))
     app.add_handler(CommandHandler("web", web_link))
     app.add_handler(CommandHandler("setphone", setphone))
+    app.add_handler(CommandHandler("calendar", calendar_cmd))
     app.add_handler(habit_conv)
     app.add_handler(task_conv)
     app.add_handler(CallbackQueryHandler(toggle_habit_callback, pattern="^toggle_habit:"))
