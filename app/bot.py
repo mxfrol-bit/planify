@@ -444,14 +444,24 @@ async def cmd_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     cmd = query.data.split(":")[1]
     if cmd == "habits": await habits_today(update, ctx)
     elif cmd == "tasks": await tasks_list(update, ctx)
-    elif cmd == "progress": await progress(update, ctx)
-    elif cmd == "web": await web_link(update, ctx)
-    elif cmd == "calendar": await calendar_cmd(update, ctx)
+    elif cmd == "progress":
+        # Имитируем update.message для progress
+        class FakeUpdate:
+            effective_user = query.from_user
+            message = query.message
+        await progress(FakeUpdate(), ctx)
+    elif cmd == "web":
+        class FakeUpdate:
+            effective_user = query.from_user
+            message = query.message
+        await web_link(FakeUpdate(), ctx)
+    elif cmd == "calendar":
+        class FakeUpdate:
+            effective_user = query.from_user
+            message = query.message
+        await calendar_cmd(FakeUpdate(), ctx)
     elif cmd == "setphone":
-        await query.message.reply_text(
-            "📞 Отправьте номер телефона командой:\n`/setphone +79001234567`",
-            parse_mode="Markdown"
-        )
+        await query.message.reply_text("Отправьте: /setphone +79001234567")
 
 # ── Build app ─────────────────────────────────────────────────────────────
 
