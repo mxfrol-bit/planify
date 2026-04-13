@@ -32,78 +32,40 @@ def ensure_user(update):
 # ── Voice handler ─────────────────────────────────────────────────────────
 
 async def transcribe_voice(file_path: str) -> str | None:
-    """Транскрибирует голосовое через Groq Whisper (бесплатно и быстро)"""
-    import httpx
+    """Транскрибирует голосовое через Google Speech Recognition (бесплатно)"""
+    import subprocess
+    import speech_recognition as sr
 
-    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-    GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+    try:
+        # Конвертируем OGA/OGG → WAV через ffmpeg
+        wav_path = file_path + ".wav"
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", file_path, "-ar", "16000", "-ac", "1", "-f", "wav", wav_path],
+            capture_output=True, timeout=20
+        )
+        if result.returncode != 0:
+            logger.error(f"ffmpeg error: {result.stderr.decode()[:100]}")
+            return None
 
-    # Пробуем Groq Whisper — самый быстрый и бесплатный
-    if GROQ_API_KEY:
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio = recognizer.record(source)
+
         try:
-            with open(file_path, "rb") as f:
-                audio_bytes = f.read()
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    "https://api.groq.com/openai/v1/audio/transcriptions",
-                    headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-                    files={"file": ("voice.ogg", audio_bytes, "audio/ogg")},
-                    data={"model": "whisper-large-v3", "language": "ru", "response_format": "text"}
-                )
-            if resp.status_code == 200:
-                text = resp.text.strip()
-                logger.info(f"Groq transcribed: {text[:60]}")
-                return text
-            else:
-                logger.error(f"Groq error: {resp.status_code} {resp.text[:100]}")
-        except Exception as e:
-            logger.error(f"Groq voice error: {e}")
+            os.unlink(wav_path)
+        except Exception:
+            pass
 
-    # Запасной — Gemini через Files API (загружаем файл, потом транскрибируем)
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-    if GEMINI_API_KEY:
-        try:
-            with open(file_path, "rb") as f:
-                audio_bytes = f.read()
+        text = recognizer.recognize_google(audio, language="ru-RU")
+        logger.info(f"STT transcribed: {text[:60]}")
+        return text
 
-            # Шаг 1: загружаем файл в Gemini Files API
-            async with httpx.AsyncClient(timeout=30) as client:
-                upload_resp = await client.post(
-                    f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={GEMINI_API_KEY}",
-                    headers={"X-Goog-Upload-Command": "start, upload, finalize",
-                             "X-Goog-Upload-Protocol": "raw",
-                             "Content-Type": "audio/ogg"},
-                    content=audio_bytes
-                )
-            if upload_resp.status_code != 200:
-                logger.error(f"Gemini upload error: {upload_resp.text[:100]}")
-                return None
-
-            file_uri = upload_resp.json()["file"]["uri"]
-            logger.info(f"Gemini file uploaded: {file_uri}")
-
-            # Шаг 2: транскрибируем
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
-                    json={
-                        "contents": [{"parts": [
-                            {"file_data": {"mime_type": "audio/ogg", "file_uri": file_uri}},
-                            {"text": "Транскрибируй это голосовое сообщение дословно на русском языке. Верни только текст, без пояснений."}
-                        ]}]
-                    }
-                )
-            result = resp.json()
-            if "candidates" in result:
-                text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-                logger.info(f"Gemini transcribed: {text[:60]}")
-                return text
-            else:
-                logger.error(f"Gemini transcribe error: {result}")
-        except Exception as e:
-            logger.error(f"Gemini files voice error: {e}")
-
-    return None
+    except sr.UnknownValueError:
+        logger.warning("Google STT: speech not understood")
+        return None
+    except Exception as e:
+        logger.error(f"Voice transcribe error: {e}")
+        return None
 
 
 async def handle_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
