@@ -10,6 +10,7 @@ from telegram.ext import (
 from app.database import db
 
 logger = logging.getLogger(__name__)
+import tempfile, os
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -27,6 +28,128 @@ def ensure_user(update):
     db.create_user(u.id, u.username, u.first_name)
 
 # ── AI parser → см. app/ai_parser.py ────────────────────────────────────
+
+# ── Voice handler ─────────────────────────────────────────────────────────
+
+async def transcribe_voice(file_path: str) -> str | None:
+    """Транскрибирует голосовое через Gemini или Whisper"""
+    import httpx, base64
+    
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+    
+    with open(file_path, "rb") as f:
+        audio_data = base64.b64encode(f.read()).decode()
+    
+    # Пробуем Gemini (умеет аудио напрямую)
+    if GEMINI_API_KEY:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(url, json={
+                    "contents": [{"parts": [
+                        {"inline_data": {"mime_type": "audio/ogg", "data": audio_data}},
+                        {"text": "Транскрибируй это голосовое сообщение на русском языке. Верни только текст без пояснений."}
+                    ]}],
+                    "generationConfig": {"maxOutputTokens": 500}
+                })
+            result = resp.json()
+            text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+            logger.info(f"Voice transcribed: {text[:50]}")
+            return text
+        except Exception as e:
+            logger.error(f"Gemini voice error: {e}")
+    
+    return None
+
+
+async def handle_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает голосовые сообщения"""
+    ensure_user(update)
+    uid = update.effective_user.id
+    
+    msg = await update.message.reply_text("🎙 Слушаю...")
+    
+    try:
+        # Скачиваем голосовое
+        voice = update.message.voice or update.message.audio
+        if not voice:
+            await msg.edit_text("Не удалось получить аудио")
+            return
+        
+        file = await ctx.bot.get_file(voice.file_id)
+        
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+            tmp_path = tmp.name
+        
+        await file.download_to_drive(tmp_path)
+        
+        # Транскрибируем
+        await msg.edit_text("🎙 Распознаю речь...")
+        text = await transcribe_voice(tmp_path)
+        
+        # Удаляем временный файл
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
+        
+        if not text:
+            await msg.edit_text("Не удалось распознать речь. Попробуй написать текстом.")
+            return
+        
+        # Показываем что распознали
+        await msg.edit_text(f"🎙 Распознал: _{text}_", parse_mode="Markdown")
+        
+        # Парсим через AI как обычный текст
+        if not ai_available():
+            db.create_task(uid, text, "📌", None, "medium", "personal")
+            await update.message.reply_text(f"📌 Записал: *{text}*", parse_mode="Markdown")
+            return
+        
+        parsed_list = await parse_task(text)
+        if not parsed_list:
+            parsed_list = [{"is_task": True, "title": text, "emoji": "📌", "deadline": None, "time": None, "priority": "medium", "category": "personal"}]
+        
+        tasks_to_create = [p for p in parsed_list if p.get("is_task")]
+        if not tasks_to_create:
+            tasks_to_create = [{"title": text, "emoji": "📌", "deadline": None, "time": None, "priority": "medium", "category": "personal"}]
+        
+        created = []
+        for p in tasks_to_create:
+            title = p.get("title", text)
+            emoji = p.get("emoji") or "📌"
+            deadline = p.get("deadline")
+            time_str = p.get("time")
+            priority = p.get("priority", "medium")
+            category = p.get("category", "personal")
+            task = db.create_task(uid, title, emoji, deadline, priority, category)
+            if time_str and deadline:
+                db.set_reminder_time(task["id"], uid, time_str)
+            created.append({"title": title, "emoji": emoji, "deadline": deadline, "time_str": time_str, "priority": priority, "task": task})
+        
+        if len(created) == 1:
+            t = created[0]
+            dl = f"\n📅 {t['deadline']}" if t["deadline"] else ""
+            tm = f" в {t['time_str']}" if t["time_str"] else ""
+            pr = PRIORITY_MAP.get(t["priority"], "")
+            kb = [[InlineKeyboardButton("✅ Окей", callback_data="ai_ok"),
+                   InlineKeyboardButton("🗑 Удалить", callback_data=f"task_del:{t['task']['id']}")]]
+            await update.message.reply_text(
+                f"📌 Записал:\n\n*{t['emoji']} {t['title']}*{dl}{tm}\n{pr}",
+                parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb)
+            )
+        else:
+            lines = [f"{t['emoji']} *{t['title']}*" + (f" · {t['deadline']}" if t['deadline'] else "") for t in created]
+            await update.message.reply_text(
+                f"📌 Записал *{len(created)}* задачи:\n\n" + "\n".join(lines),
+                parse_mode="Markdown"
+            )
+    
+    except Exception as e:
+        logger.error(f"Voice handler error: {e}")
+        await msg.edit_text("Ошибка обработки голосового. Попробуй написать текстом.")
+
 
 # ── Free text handler ─────────────────────────────────────────────────────
 
