@@ -620,6 +620,7 @@ def build_application() -> Application:
     app.add_handler(CallbackQueryHandler(habit_settings_callback, pattern="^habit_(snooze|settings|set_time|set_days):"))
     app.add_handler(CallbackQueryHandler(reminder_callback, pattern="^rem_"))
     app.add_handler(CallbackQueryHandler(cmd_callback, pattern="^cmd:"))
+    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))
 
     return app
