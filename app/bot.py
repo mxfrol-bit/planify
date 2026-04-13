@@ -32,37 +32,50 @@ def ensure_user(update):
 # ── Voice handler ─────────────────────────────────────────────────────────
 
 async def transcribe_voice(file_path: str) -> str | None:
-    """Транскрибирует голосовое через Google Speech Recognition (бесплатно)"""
-    import subprocess
-    import speech_recognition as sr
+    """Транскрибирует голосовое через OpenRouter Whisper"""
+    import httpx
+
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+    if not OPENROUTER_API_KEY:
+        return None
 
     try:
-        # Конвертируем OGA/OGG → WAV через ffmpeg
-        wav_path = file_path + ".wav"
-        result = subprocess.run(
-            ["ffmpeg", "-y", "-i", file_path, "-ar", "16000", "-ac", "1", "-f", "wav", wav_path],
-            capture_output=True, timeout=20
-        )
-        if result.returncode != 0:
-            logger.error(f"ffmpeg error: {result.stderr.decode()[:100]}")
+        with open(file_path, "rb") as f:
+            audio_bytes = f.read()
+
+        # OpenRouter поддерживает Whisper через совместимый endpoint
+        async with httpx.AsyncClient(timeout=40) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                files={"file": ("voice.oga", audio_bytes, "audio/ogg")},
+                data={"model": "openai/whisper-1", "language": "ru", "response_format": "json"}
+            )
+
+        logger.info(f"Whisper status: {resp.status_code}")
+        if resp.status_code == 200:
+            text = resp.json().get("text", "").strip()
+            logger.info(f"Whisper transcribed: {text[:60]}")
+            return text if text else None
+        else:
+            logger.error(f"Whisper error: {resp.text[:200]}")
+            # Fallback — пробуем через Gemini если есть ключ
+            GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+            if not GEMINI_KEY:
+                return None
+            import base64
+            audio_b64 = base64.b64encode(audio_bytes).decode()
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+            resp2 = await httpx.AsyncClient(timeout=30).post(url, json={
+                "contents": [{"parts": [
+                    {"inline_data": {"mime_type": "audio/ogg", "data": audio_b64}},
+                    {"text": "Транскрибируй аудио на русском. Только текст."}
+                ]}]
+            })
+            if resp2.status_code == 200:
+                return resp2.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
             return None
 
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio = recognizer.record(source)
-
-        try:
-            os.unlink(wav_path)
-        except Exception:
-            pass
-
-        text = recognizer.recognize_google(audio, language="ru-RU")
-        logger.info(f"STT transcribed: {text[:60]}")
-        return text
-
-    except sr.UnknownValueError:
-        logger.warning("Google STT: speech not understood")
-        return None
     except Exception as e:
         logger.error(f"Voice transcribe error: {e}")
         return None
