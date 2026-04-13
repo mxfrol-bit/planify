@@ -423,9 +423,7 @@ async def get_ical(token: str):
             continue
     
     lines.append("END:VCALENDAR")
-    ical_text = "
-".join(lines) + "
-"
+    ical_text = "\r\n".join(lines) + "\r\n"
     
     return Response(
         content=ical_text,
