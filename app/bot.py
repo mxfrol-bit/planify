@@ -596,7 +596,7 @@ async def calendar_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     webcal_url = ical_url.replace("https://", "webcal://").replace("http://", "webcal://")
     google_url = f"https://calendar.google.com/calendar/r?cid={ical_url}"
     
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("📱 Добавить на iPhone/Mac", url=webcal_url)],
         [InlineKeyboardButton("🗓 Добавить в Google Calendar", url=google_url)],
