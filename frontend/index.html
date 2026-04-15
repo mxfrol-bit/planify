@@ -383,9 +383,55 @@ select option{background:var(--s2);}
   <div class="section-title">⚙️ Настройки</div>
   <div style="display:flex;flex-direction:column;gap:14px;max-width:520px">
     <div class="card">
+      <b style="display:block;margin-bottom:12px">👤 Профиль</b>
+      <div id="profile-info" style="font-size:13px;color:var(--mt)">Загрузка...</div>
+    </div>
+    <div class="card">
+      <b style="display:block;margin-bottom:14px">📞 Настройки звонков</b>
+      <div class="fr" style="margin-bottom:12px">
+        <div class="fg">
+          <label class="fl">Звонки включены</label>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+            <div id="call-toggle" onclick="toggleCalls()" style="width:44px;height:24px;border-radius:12px;background:var(--b);cursor:pointer;position:relative;transition:background .2s">
+              <div id="call-knob" style="width:20px;height:20px;border-radius:50%;background:white;position:absolute;top:2px;left:2px;transition:transform .2s"></div>
+            </div>
+            <span id="call-status-text" style="font-size:13px;color:var(--mt)">...</span>
+          </div>
+        </div>
+      </div>
+      <div class="fr">
+        <div class="fg">
+          <label class="fl">Звонить за (минут до события)</label>
+          <select id="call-before-select" onchange="saveCallSettings()">
+            <option value="15">15 минут</option>
+            <option value="30">30 минут</option>
+            <option value="45">45 минут</option>
+            <option value="60" selected>60 минут</option>
+            <option value="90">90 минут</option>
+            <option value="120">2 часа</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="fl">Имя для обращения в звонке</label>
+          <input id="call-name-input" placeholder="Владимир" onblur="saveCallSettings()">
+        </div>
+      </div>
+      <button class="btn btn-p btn-sm" onclick="saveCallSettings()">💾 Сохранить</button>
+      <div id="call-save-result" style="margin-top:8px;font-size:12px;color:var(--gr);display:none">✅ Сохранено!</div>
+    </div>
+    <div class="card">
       <b style="display:block;margin-bottom:12px">🔑 Доступ</b>
-      <p style="color:var(--mt);font-size:13px;margin-bottom:10px">Ваш токен для дашборда. Открывайте через команду /web в боте.</p>
+      <p style="color:var(--mt);font-size:13px;margin-bottom:10px">Токен для дашборда. Открывайте через /web в боте.</p>
       <div style="background:var(--s2);border-radius:8px;padding:10px;font-size:12px;font-family:monospace;word-break:break-all;color:var(--ac2)" id="token-display">...</div>
+    </div>
+    <div class="card">
+      <b style="display:block;margin-bottom:12px">📓 Obsidian</b>
+      <p style="color:var(--mt);font-size:13px;margin-bottom:10px">Синхронизируйте задачи в ваш Obsidian vault через плагин Local REST API.</p>
+      <div id="obsidian-status" style="font-size:13px;margin-bottom:10px;color:var(--mt)">Проверяем...</div>
+      <button class="btn btn-g btn-sm" onclick="syncObsidian()" id="obsidian-sync-btn" style="display:none">🔄 Синхронизировать сейчас</button>
+      <div style="margin-top:10px;font-size:12px;color:var(--mt)">
+        Настройка через бота: <code>/obsidian URL API_KEY</code>
+      </div>
     </div>
     <div class="card">
       <b style="display:block;margin-bottom:12px">📞 Голосовые звонки</b>
@@ -438,6 +484,36 @@ select option{background:var(--s2);}
 </div>
 
 </main>
+
+<!-- Task Detail Modal with Subtasks & Notes -->
+<div id="detail-mo" class="mo">
+  <div class="modal" style="max-width:560px">
+    <div class="mhandle"></div>
+    <div id="detail-title" class="mtitle">📌 Задача</div>
+    <div id="detail-meta" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
+
+    <!-- Notes -->
+    <div class="fg" style="margin-bottom:16px">
+      <label class="fl">📝 Заметки</label>
+      <textarea id="detail-notes" rows="3" placeholder="Добавь заметки, ссылки, контекст..." style="resize:vertical" onblur="saveNotes()"></textarea>
+    </div>
+
+    <!-- Subtasks -->
+    <div style="margin-bottom:14px">
+      <label class="fl" style="margin-bottom:8px;display:block">☑️ Подзадачи</label>
+      <div id="subtasks-list" style="margin-bottom:8px"></div>
+      <div style="display:flex;gap:6px">
+        <input id="subtask-input" placeholder="Новая подзадача..." onkeydown="if(event.key==='Enter')addSubtask()" style="flex:1">
+        <button class="btn btn-p btn-sm" onclick="addSubtask()">+</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-p btn-sm" onclick="openEditFromDetail()">✏️ Редактировать</button>
+      <button class="btn btn-g btn-sm" onclick="closeDetail()">Закрыть</button>
+    </div>
+  </div>
+</div>
 
 <!-- Edit Task Modal -->
 <div id="edit-mo" class="mo">
@@ -511,7 +587,7 @@ function go(name,el){
   if(name==='habits')loadHabits();
   if(name==='tasks'){document.getElementById('kanban-view').style.display='block';document.getElementById('tasks-list').style.display='none';loadTasks();}
   if(name==='analytics')loadAnalytics();
-  if(name==='settings'){document.getElementById('token-display').textContent=TOKEN||'нет';loadPhone();loadCalendarSettings();}
+  if(name==='settings'){loadSettings();loadCalendarSettings();}
 }
 function onFab(){
   const a=document.querySelector('.page.active')?.id;
@@ -793,10 +869,169 @@ function addTyping(){
 
 // ── Settings ───────────────────────────────────────────────────────────────
 async function loadPhone(){
-  try{const u=await api('/api/me');document.getElementById('phone-display').textContent=u.phone||'Не установлен. Используйте /setphone в боте.';}catch(e){}
+  try{
+    const u=await api('/api/me');
+    document.getElementById('phone-display')&&(document.getElementById('phone-display').textContent=u.phone||'Не установлен');
+  }catch(e){}
+}
+
+let callEnabled = true;
+
+async function loadSettings(){
+  document.getElementById('token-display').textContent=TOKEN||'нет';
+  try{
+    const u=await api('/api/me');
+
+    // Profile
+    const pi=document.getElementById('profile-info');
+    if(pi)pi.innerHTML=`<b>${u.first_name||''}</b><br>📞 ${u.phone||'не установлен'}<br>📓 Obsidian: ${u.obsidian_webhook?'✅ подключён':'не подключён'}`;
+
+    // Call settings
+    callEnabled=u.call_enabled!==false;
+    updateCallToggle(callEnabled);
+    const sel=document.getElementById('call-before-select');
+    if(sel)sel.value=String(u.call_before_minutes||60);
+    const nameInp=document.getElementById('call-name-input');
+    if(nameInp)nameInp.value=u.call_name||'';
+
+    // Obsidian
+    const obs=document.getElementById('obsidian-status');
+    const obsbtn=document.getElementById('obsidian-sync-btn');
+    if(u.obsidian_webhook){
+      if(obs)obs.innerHTML='<span style="color:var(--gr)">✅ Obsidian подключён</span>';
+      if(obsbtn)obsbtn.style.display='inline-flex';
+    }else{
+      if(obs)obs.textContent='Не подключён. Настройте через бота командой /obsidian';
+    }
+  }catch(e){console.error(e);}
+}
+
+function updateCallToggle(enabled){
+  const t=document.getElementById('call-toggle');
+  const k=document.getElementById('call-knob');
+  const s=document.getElementById('call-status-text');
+  if(t)t.style.background=enabled?'var(--ac)':'var(--b)';
+  if(k)k.style.transform=enabled?'translateX(20px)':'translateX(0)';
+  if(s)s.textContent=enabled?'Включены':'Отключены';
+}
+
+function toggleCalls(){
+  callEnabled=!callEnabled;
+  updateCallToggle(callEnabled);
+  saveCallSettings();
+}
+
+async function saveCallSettings(){
+  const before=document.getElementById('call-before-select')?.value||'60';
+  const name=document.getElementById('call-name-input')?.value||'';
+  await api('/api/me/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({call_enabled:callEnabled,call_before_minutes:parseInt(before),call_name:name})});
+  const res=document.getElementById('call-save-result');
+  if(res){res.style.display='block';setTimeout(()=>res.style.display='none',2000);}
+}
+
+async function syncObsidian(){
+  const btn=document.getElementById('obsidian-sync-btn');
+  btn.textContent='⏳ Синхронизирую...';btn.disabled=true;
+  const data=await api('/api/obsidian/sync',{method:'POST'});
+  btn.textContent=data.ok?'✅ Синхронизировано!':'❌ Ошибка';
+  btn.disabled=false;
+  setTimeout(()=>{btn.textContent='🔄 Синхронизировать сейчас';},3000);
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
+// ── Task Detail (Subtasks + Notes) ────────────────────────────────────────
+let detailTaskId = null;
+let detailTaskData = null;
+
+async function openDetail(id) {
+  detailTaskId = id;
+  document.getElementById('detail-mo').classList.add('open');
+  document.getElementById('subtasks-list').innerHTML = '<div class="loader" style="padding:10px">...</div>';
+
+  const [task, subtasks] = await Promise.all([
+    api(`/api/tasks/${id}/detail`),
+    api(`/api/tasks/${id}/subtasks`)
+  ]);
+
+  detailTaskData = task;
+  const PL2 = {urgent:'🔴',high:'🟠',medium:'🟡',low:'🟢'};
+  document.getElementById('detail-title').textContent = `${task.emoji||'📌'} ${task.title}`;
+  document.getElementById('detail-meta').innerHTML = `
+    ${PB[task.priority]||''} ${CB[task.category]||''}
+    ${task.deadline?`<span class="dt">${task.deadline}</span>`:''}
+    ${task.reminder_time?`<span class="tt">⏰${task.reminder_time}</span>`:''}
+  `;
+  document.getElementById('detail-notes').value = task.notes || '';
+  renderSubtasks(subtasks);
+}
+
+function renderSubtasks(subtasks) {
+  const el = document.getElementById('subtasks-list');
+  if (!subtasks.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--mt)">Нет подзадач</div>';
+    return;
+  }
+  const done = subtasks.filter(s=>s.completed).length;
+  el.innerHTML = `
+    <div style="font-size:11px;color:var(--mt);margin-bottom:6px">${done}/${subtasks.length} выполнено</div>
+    ${subtasks.map(s=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--b)">
+      <div onclick="toggleSubtask('${s.id}')" style="width:18px;height:18px;border-radius:4px;border:2px solid ${s.completed?'var(--gr)':'var(--mt)'};background:${s.completed?'var(--gr)':'transparent'};cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px">${s.completed?'✓':''}</div>
+      <div style="flex:1;font-size:13px;${s.completed?'text-decoration:line-through;color:var(--mt)':''}">${s.title}</div>
+      <button onclick="deleteSubtask('${s.id}')" class="bti" style="font-size:11px">🗑</button>
+    </div>`).join('')}
+  `;
+}
+
+async function addSubtask() {
+  const inp = document.getElementById('subtask-input');
+  const title = inp.value.trim();
+  if (!title || !detailTaskId) return;
+  await api(`/api/tasks/${detailTaskId}/subtasks`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({title})
+  });
+  inp.value = '';
+  const subtasks = await api(`/api/tasks/${detailTaskId}/subtasks`);
+  renderSubtasks(subtasks);
+}
+
+async function toggleSubtask(id) {
+  await api(`/api/subtasks/${id}/toggle`, {method:'POST'});
+  const subtasks = await api(`/api/tasks/${detailTaskId}/subtasks`);
+  renderSubtasks(subtasks);
+}
+
+async function deleteSubtask(id) {
+  await api(`/api/subtasks/${id}`, {method:'DELETE'});
+  const subtasks = await api(`/api/tasks/${detailTaskId}/subtasks`);
+  renderSubtasks(subtasks);
+}
+
+async function saveNotes() {
+  if (!detailTaskId) return;
+  const notes = document.getElementById('detail-notes').value;
+  await api(`/api/tasks/${detailTaskId}/notes`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({notes})
+  });
+}
+
+function closeDetail() {
+  document.getElementById('detail-mo').classList.remove('open');
+  detailTaskId = null;
+  loadTasks();
+}
+
+function openEditFromDetail() {
+  if (!detailTaskData) return;
+  const t = detailTaskData;
+  closeDetail();
+  setTimeout(()=>openEdit(t.id, t.title||'', t.deadline||'', t.reminder_time||'', t.priority||'medium', t.category||'personal'), 100);
+}
+
+document.getElementById('detail-mo').addEventListener('click', e=>{if(e.target===document.getElementById('detail-mo'))closeDetail();});
+
 // ── Calendar ───────────────────────────────────────────────────────────────
 function getIcalUrl(){return `${location.origin}/calendar/${TOKEN}.ics`;}
 function addToApple(){window.open(`webcal://${location.host}/calendar/${TOKEN}.ics`);}

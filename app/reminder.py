@@ -40,13 +40,14 @@ async def send_task_reminder(bot_app, task: dict):
     db.mark_reminded(task["id"])
     logger.info(f"Task reminder sent: {title}")
 
-    # Голосовой звонок если есть номер телефона
+    # Голосовой звонок с учётом настроек пользователя
     try:
         from app.caller import make_call, notify_call_result
         user = db.get_user(task["user_id"])
         phone = user.get("phone") if user else None
-        if phone:
-            call_result = await make_call(phone, task)
+        call_enabled = user.get("call_enabled", True) if user else True
+        if phone and call_enabled:
+            call_result = await make_call(phone, task, user)
             await notify_call_result(bot_app, task["user_id"], task, call_result)
     except Exception as e:
         logger.error(f"Call error: {e}")
@@ -100,7 +101,17 @@ async def check_task_reminders(bot_app):
             diff = (task_time - now).total_seconds() / 60
             logger.info(f"Task '{task['title']}': diff={diff:.1f} min")
 
-            if 55 <= diff <= 65:
+            # Учитываем индивидуальные настройки звонка
+            try:
+                user = db.get_user(task["user_id"])
+                call_before = user.get("call_before_minutes", 60) if user else 60
+            except Exception:
+                call_before = 60
+
+            window_low = call_before - 5
+            window_high = call_before + 5
+
+            if window_low <= diff <= window_high:
                 await send_task_reminder(bot_app, task)
     except Exception as e:
         logger.error(f"Task reminder error: {e}")
@@ -182,9 +193,82 @@ async def send_morning_digest(bot_app):
         logger.error(f"Morning digest error: {e}")
 
 
+async def send_evening_digest(bot_app):
+    """Вечерний обзор в 21:00 — итоги дня и план на завтра"""
+    from app.database import db
+    from datetime import date, timedelta
+    import pytz
+
+    now = datetime.now(MOSCOW_TZ)
+    today = now.date().isoformat()
+    tomorrow = (now.date() + timedelta(1)).isoformat()
+
+    try:
+        users = db.supabase_get_all_users()
+        for user in users:
+            uid = user["id"]
+            try:
+                # Итоги сегодня
+                all_tasks = db.get_tasks(uid, completed=False) + db.get_tasks(uid, completed=True)
+                done_today = [t for t in all_tasks if t.get("completed") and t.get("deadline") == today]
+                pending_today = [t for t in all_tasks if not t.get("completed") and t.get("deadline") == today]
+                tomorrow_tasks = [t for t in all_tasks if not t.get("completed") and t.get("deadline") == tomorrow]
+
+                habits = db.get_habits(uid)
+                logs = db.get_today_logs(uid, today)
+                done_ids = {l["habit_id"] for l in logs}
+                done_habits = [h for h in habits if h["id"] in done_ids]
+                missed_habits = [h for h in habits if h["id"] not in done_ids]
+
+                if not habits and not all_tasks:
+                    continue
+
+                # Формируем текст
+                lines = ["🌙 *Вечерний обзор дня*\n"]
+
+                # Итоги
+                lines.append("📊 *Итоги:*")
+                lines.append(f"✅ Задач выполнено: *{len(done_today)}*")
+                if pending_today:
+                    lines.append(f"⏳ Не выполнено сегодня: *{len(pending_today)}*")
+                    for t in pending_today[:3]:
+                        lines.append(f"  • {t.get('emoji','📌')} {t['title']}")
+
+                if done_habits:
+                    lines.append(f"\n\U0001f3af Привычки выполнены: *{len(done_habits)}/{len(habits)}*")
+                    lines.append("Пропущено: " + ", ".join([f"{h['emoji']} {h['name']}" for h in missed_habits[:3]]))
+
+                # Стрик
+                lines.append("")
+                if len(done_habits) == len(habits) and habits:
+                    lines.append("🔥 *Все привычки выполнены! Отличный день!*")
+
+                # План на завтра
+                if tomorrow_tasks:
+                    lines.append(f"\n📅 *Завтра запланировано:*")
+                    for t in tomorrow_tasks[:5]:
+                        time_str = f" в {t['reminder_time']}" if t.get("reminder_time") else ""
+                        lines.append(f"• {t.get('emoji','📌')} {t['title']}{time_str}")
+
+                lines.append("\n_Хорошего вечера! 🌟_")
+                text = "\n".join(lines)
+
+
+                await bot_app.bot.send_message(
+                    chat_id=uid, text=text, parse_mode="Markdown"
+                )
+                logger.info(f"Evening digest sent to {uid}")
+            except Exception as e:
+                logger.error(f"Evening digest error for {uid}: {e}")
+
+    except Exception as e:
+        logger.error(f"Evening digest global error: {e}")
+
+
 async def reminder_loop(bot_app):
     logger.info("Reminder loop started")
     last_digest_day = None
+    last_evening_day = None
 
     while True:
         now = datetime.now(MOSCOW_TZ)
@@ -193,6 +277,11 @@ async def reminder_loop(bot_app):
         if now.hour == 9 and now.minute < 5 and now.date() != last_digest_day:
             await send_morning_digest(bot_app)
             last_digest_day = now.date()
+
+        # Вечерний обзор в 21:00
+        if now.hour == 21 and now.minute < 5 and now.date() != last_evening_day:
+            await send_evening_digest(bot_app)
+            last_evening_day = now.date()
 
         await check_task_reminders(bot_app)
         await check_habit_reminders(bot_app)

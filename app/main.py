@@ -297,6 +297,148 @@ async def ai_chat(request: Request, token: str):
         raise HTTPException(500, str(e))
 
 
+# ── User profile ──────────────────────────────────────────────────────────
+
+@app.get("/api/me")
+def get_me(token: str):
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    return {
+        "id": user["id"],
+        "first_name": user.get("first_name"),
+        "phone": user.get("phone"),
+        "call_enabled": user.get("call_enabled", True),
+        "call_before_minutes": user.get("call_before_minutes", 60),
+        "call_name": user.get("call_name"),
+        "google_access_token": bool(user.get("google_access_token")),
+        "obsidian_webhook": bool(user.get("obsidian_webhook")),
+    }
+
+
+@app.post("/api/me/settings")
+async def update_settings(request: Request, token: str):
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    body = await request.json()
+    allowed = ["call_enabled", "call_before_minutes", "call_name", "phone"]
+    data = {k: v for k, v in body.items() if k in allowed}
+    if data:
+        db.update_user_settings(user["id"], data)
+    return {"ok": True}
+
+
+# ── Subtasks API ──────────────────────────────────────────────────────────
+
+@app.get("/api/tasks/{task_id}/subtasks")
+def get_subtasks(task_id: str, token: str):
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    return db.get_subtasks(task_id)
+
+@app.post("/api/tasks/{task_id}/subtasks")
+async def create_subtask(task_id: str, token: str, request: Request):
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    body = await request.json()
+    title = body.get("title", "").strip()
+    if not title:
+        raise HTTPException(400, "Title required")
+    return db.create_subtask(task_id, user["id"], title)
+
+@app.post("/api/subtasks/{subtask_id}/toggle")
+def toggle_subtask(subtask_id: str, token: str):
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    done = db.toggle_subtask(subtask_id, user["id"])
+    return {"done": done}
+
+@app.delete("/api/subtasks/{subtask_id}")
+def delete_subtask(subtask_id: str, token: str):
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    db.delete_subtask(subtask_id, user["id"])
+    return {"ok": True}
+
+@app.post("/api/tasks/{task_id}/notes")
+async def update_task_notes(task_id: str, token: str, request: Request):
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    body = await request.json()
+    notes = body.get("notes", "")
+    db.update_task_notes(task_id, user["id"], notes)
+    return {"ok": True}
+
+@app.get("/api/tasks/{task_id}/detail")
+def get_task_detail(task_id: str, token: str):
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+    tasks = db.get_tasks(user["id"], completed=False) + db.get_tasks(user["id"], completed=True)
+    task = next((t for t in tasks if t["id"] == task_id), None)
+    if not task:
+        raise HTTPException(404)
+    task["subtasks"] = db.get_subtasks(task_id)
+    return task
+
+
+# ── Obsidian sync ──────────────────────────────────────────────────────────
+
+@app.post("/api/obsidian/sync")
+async def obsidian_sync(token: str):
+    import httpx
+    user = db.get_user_by_token(token)
+    if not user:
+        raise HTTPException(401)
+
+    webhook = user.get("obsidian_webhook")
+    if not webhook or "|" not in webhook:
+        raise HTTPException(400, "Obsidian не подключён. Используйте /obsidian в боте.")
+
+    base_url, api_key = webhook.split("|", 1)
+    tasks = db.get_tasks(user["id"], completed=False)
+
+    # Формируем markdown для Tasks.md
+    from datetime import date
+    today = date.today().isoformat()
+    lines = [f"# Задачи Planify", f"_Обновлено: {today}_", ""]
+
+    today_tasks = [t for t in tasks if t.get("deadline") == today]
+    other_tasks = [t for t in tasks if t.get("deadline") != today]
+
+    if today_tasks:
+        lines.append("## 📅 Сегодня")
+        for t in today_tasks:
+            time_str = f" ⏰{t['reminder_time']}" if t.get("reminder_time") else ""
+            lines.append(f"- [ ] {t.get('emoji','📌')} {t['title']}{time_str}")
+        lines.append("")
+
+    if other_tasks:
+        lines.append("## 📋 Остальные")
+        for t in sorted(other_tasks, key=lambda x: x.get("deadline") or "9999"):
+            dl = f" 📅{t['deadline']}" if t.get("deadline") else ""
+            lines.append(f"- [ ] {t.get('emoji','📌')} {t['title']}{dl}")
+
+    content = "\n".join(lines)
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.put(
+                f"{base_url}/vault/Planify/Tasks.md",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "text/markdown"},
+                content=content
+            )
+        return {"ok": resp.status_code in [200, 201, 204], "status": resp.status_code}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 # ── iCal Calendar feed ────────────────────────────────────────────────────
 
 @app.get("/calendar/{token}.ics")

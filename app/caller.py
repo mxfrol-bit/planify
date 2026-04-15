@@ -18,7 +18,9 @@ async def generate_call_text(task: dict) -> str:
     time_str = task.get("reminder_time", "")
     
     # Простой шаблон без AI
-    base_text = f"Здравствуйте! Напоминаю — через час у вас запланировано: {title}."
+    call_name = task.get("_call_name", "")
+    greeting = f"Здравствуйте, {call_name}!" if call_name else "Здравствуйте!"
+    base_text = f"{greeting} Напоминаю — через час у вас запланировано: {title}."
     if time_str:
         base_text += f" Время: {time_str}."
     base_text += " Удачного дня!"
@@ -50,7 +52,7 @@ async def generate_call_text(task: dict) -> str:
     return base_text
 
 
-async def make_call(phone: str, task: dict) -> dict:
+async def make_call(phone: str, task: dict, user: dict = None) -> dict:
     """Совершает голосовой звонок через Zvonok.com"""
     if not ZVONOK_API_KEY or not ZVONOK_CAMPAIGN_ID:
         logger.warning("Zvonok credentials not configured")
@@ -63,6 +65,10 @@ async def make_call(phone: str, task: dict) -> dict:
     if not phone_clean.startswith("7"):
         phone_clean = "7" + phone_clean
 
+    # Используем имя из настроек пользователя
+    if user and user.get("call_name"):
+        task = dict(task)
+        task["_call_name"] = user["call_name"]
     text = await generate_call_text(task)
     logger.info(f"Calling {phone_clean}: {text[:50]}...")
 

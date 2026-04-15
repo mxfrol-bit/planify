@@ -12,6 +12,16 @@ from app.database import db
 logger = logging.getLogger(__name__)
 import tempfile, os
 
+# ── Постоянная клавиатура ──────────────────────────────────────────────────
+MAIN_KB = ReplyKeyboardMarkup([
+    ["📋 Задачи", "🎯 Привычки"],
+    ["📊 Прогресс", "🌐 Дашборд"],
+    ["➕ Добавить задачу", "📅 Календарь"],
+    ["⚙️ Настройки", "❓ Помощь"],
+], resize_keyboard=True, input_field_placeholder="Или напиши задачу текстом...")
+
+
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 PORT = int(os.getenv("PORT", 8000))
@@ -172,6 +182,27 @@ async def handle_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ── Free text handler ─────────────────────────────────────────────────────
 
 async def handle_free_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    text_in = update.message.text.strip()
+
+    # Обрабатываем кнопки постоянной клавиатуры
+    if text_in == "📋 Задачи":
+        await tasks_list(update, ctx); return
+    if text_in == "🎯 Привычки":
+        await habits_today(update, ctx); return
+    if text_in == "📊 Прогресс":
+        await progress(update, ctx); return
+    if text_in == "🌐 Дашборд":
+        await web_link(update, ctx); return
+    if text_in == "➕ Добавить задачу":
+        await update.message.reply_text("✏️ Напиши задачу в свободной форме:\n_«Встреча с Андреем завтра в 14:00»_", parse_mode="Markdown"); return
+    if text_in == "📅 Календарь":
+        await calendar_cmd(update, ctx); return
+    if text_in == "⚙️ Настройки":
+        await settings_cmd(update, ctx); return
+    if text_in == "❓ Помощь":
+        await help_cmd(update, ctx); return
+
+    # Иначе обрабатываем как задачу
     ensure_user(update)
     text = update.message.text.strip()
     uid = update.effective_user.id
@@ -233,232 +264,325 @@ async def handle_free_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ensure_user(update)
+    uid = update.effective_user.id
     name = update.effective_user.first_name
     ai_status = "🤖 AI активен" if ai_available() else "💡 Базовый режим"
 
-    text = (
-        f"👋 Привет, *{name}*!\n\n"
-        f"Я — *Planify*, твой личный ИИ-планировщик.\n\n"
-        f"🧠 *Что умею:*\n"
-        f"• Записываю задачи в свободной форме\n"
-        f"• Напоминаю звонком за час до встречи\n"
-        f"• Слежу за привычками и стриками 🔥\n"
-        f"• Делаю утренний дайджест в 9:00\n\n"
-        f"💬 *Просто напиши:*\n"
-        f"_«Встреча с Андреем завтра в 9:00»_\n"
-        f"_«Купить шины в четверг, срочно»_\n\n"
-        f"{ai_status} · Всё готово 🚀"
+    # Проверяем новый ли пользователь
+    user = db.get_user(uid)
+    is_new = not user.get("phone") and not db.get_habits(uid)
+
+    if is_new:
+        # Онбординг для новых пользователей
+        text = (
+            f"👋 Привет, *{name}*! Добро пожаловать в *Planify*!\n\n"
+            f"Я — твой личный ИИ-планировщик. Вот что я умею:\n\n"
+            f"📋 *Задачи* — пишешь в свободной форме, я сам разбираю дату и время\n"
+            f"🎯 *Привычки* — слежу за стриками, напоминаю в нужное время\n"
+            f"📞 *Звонки* — звоню за час до важных встреч\n"
+            f"📅 *Календарь* — синхронизация с iPhone и Google\n"
+            f"🤖 *ИИ* — понимаю голосовые сообщения\n\n"
+            f"Давай настроим всё за 2 минуты! 🚀"
+        )
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🚀 Начать настройку", callback_data="onboard:start")],
+            [InlineKeyboardButton("⏭ Пропустить", callback_data="onboard:skip")],
+        ])
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=MAIN_KB)
+        await update.message.reply_text("Хочешь пройти быструю настройку?", reply_markup=kb)
+    else:
+        # Для существующих пользователей
+        tasks_count = len(db.get_tasks(uid, completed=False))
+        habits = db.get_habits(uid)
+        from datetime import date
+        today = date.today().isoformat()
+        logs = db.get_today_logs(uid, today)
+        done_count = len(logs)
+
+        text = (
+            f"👋 С возвращением, *{name}*!\n\n"
+            f"📊 *Сегодня:* {done_count}/{len(habits)} привычек выполнено\n"
+            f"📋 *Активных задач:* {tasks_count}\n\n"
+            f"{ai_status}"
+        )
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=MAIN_KB)
+
+
+async def onboard_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = update.effective_user.id
+    name = update.effective_user.first_name
+    data = query.data
+
+    if data == "onboard:start":
+        await query.edit_message_text(
+            "📞 *Шаг 1 из 3: Номер телефона*\n\n"
+            "Бот будет звонить тебе за час до важных встреч — голосом зачитает все задачи на ближайшее время.\n\n"
+            "Отправь свой номер:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⏭ Пропустить", callback_data="onboard:habits")],
+            ])
+        )
+        ctx.user_data["onboard_step"] = "phone"
+
+    elif data == "onboard:habits":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🏃 Бег", callback_data="onboard:habit:🏃:Бег"),
+             InlineKeyboardButton("💧 Вода", callback_data="onboard:habit:💧:Вода 2л")],
+            [InlineKeyboardButton("📚 Чтение", callback_data="onboard:habit:📚:Чтение"),
+             InlineKeyboardButton("💊 Витамины", callback_data="onboard:habit:💊:Витамины")],
+            [InlineKeyboardButton("🧘 Медитация", callback_data="onboard:habit:🧘:Медитация"),
+             InlineKeyboardButton("📝 Дневник", callback_data="onboard:habit:📝:Дневник")],
+            [InlineKeyboardButton("✅ Готово →", callback_data="onboard:done")],
+        ])
+        await query.edit_message_text(
+            "🎯 *Шаг 2 из 3: Привычки*\n\n"
+            "Выбери привычки которые хочешь отслеживать (можно несколько):",
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+
+    elif data.startswith("onboard:habit:"):
+        parts = data.split(":")
+        emoji, name_h = parts[2], parts[3]
+        db.create_habit(uid, name_h, emoji, "daily")
+        await query.answer(f"✅ {emoji} {name_h} добавлена!")
+
+    elif data == "onboard:done":
+        await query.edit_message_text(
+            "🌐 *Шаг 3 из 3: Дашборд*\n\n"
+            "Открой веб-дашборд — там Канбан задач, аналитика, ИИ-ассистент и настройки календаря!",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 Открыть дашборд", callback_data="cmd:web")],
+                [InlineKeyboardButton("✅ Всё готово!", callback_data="onboard:finish")],
+            ])
+        )
+
+    elif data == "onboard:skip" or data == "onboard:finish":
+        await query.edit_message_text(
+            f"🚀 *Всё готово, {name}!*\n\n"
+            "Используй кнопки внизу или просто напиши задачу текстом.\n\n"
+            "💬 Например: _«Встреча с командой завтра в 10:00»_\n"
+            "🎙 Или отправь голосовое сообщение!",
+            parse_mode="Markdown"
+        )
+
+
+async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 Как добавить задачу?", callback_data="help:tasks")],
+        [InlineKeyboardButton("🎯 Как работают привычки?", callback_data="help:habits")],
+        [InlineKeyboardButton("📞 Как настроить звонки?", callback_data="help:calls")],
+        [InlineKeyboardButton("📅 Как подключить календарь?", callback_data="help:calendar")],
+        [InlineKeyboardButton("🎙 Голосовые сообщения", callback_data="help:voice")],
+    ])
+    await update.message.reply_text(
+        "❓ *Помощь — Planify*\n\nВыбери тему:",
+        parse_mode="Markdown",
+        reply_markup=kb
     )
 
+
+async def help_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    topic = query.data.split(":")[1]
+
+    texts = {
+        "tasks": (
+            "📋 *Как добавить задачу*\n\n"
+            "Просто напиши мне в свободной форме:\n\n"
+            "• _«Встреча с Андреем завтра в 14:00»_\n"
+            "• _«Купить шины в пятницу, срочно»_\n"
+            "• _«Позвонить маме сегодня вечером»_\n\n"
+            "Я сам определю дату, время и приоритет!\n\n"
+            "Или нажми *➕ Добавить задачу* и следуй инструкциям."
+        ),
+        "habits": (
+            "🎯 *Как работают привычки*\n\n"
+            "1. Нажми *🎯 Привычки* → добавь привычку\n"
+            "2. Каждый день отмечай выполнение\n"
+            "3. Стрик 🔥 растёт при ежедневном выполнении\n\n"
+            "В дашборде можно настроить:\n"
+            "• Время напоминания (бот напомнит в нужное время)\n"
+            "• Дни недели (например, только пн-пт)\n\n"
+            "Рекорд стрика сохраняется навсегда 🏆"
+        ),
+        "calls": (
+            "📞 *Голосовые звонки*\n\n"
+            "Бот звонит за час до задач с напоминанием и зачитывает все дела на ближайшее время.\n\n"
+            "Чтобы включить:\n"
+            "1. Отправь: `/setphone +79001234567`\n"
+            "2. Добавь задачу с временем\n"
+            "3. За час до — получишь звонок!\n\n"
+            "Тест звонка — в дашборде на главной странице 📲"
+        ),
+        "calendar": (
+            "📅 *Подписка на календарь*\n\n"
+            "Все задачи появятся в родном Календаре iPhone или Google.\n\n"
+            "Нажми /calendar — получишь кнопки для каждой платформы.\n\n"
+            "*iPhone/Mac:* Нажми 🍎 — iOS сам предложит добавить\n"
+            "*Google:* Нажми 🗓 — откроется Google Calendar"
+        ),
+        "voice": (
+            "🎙 *Голосовые сообщения*\n\n"
+            "Запиши голосовое — я транскрибирую и создам задачи!\n\n"
+            "Можно надиктовать сразу несколько:\n"
+            "_«Завтра в 9 встреча с командой, в четверг купить шины, позвонить маме в воскресенье»_\n\n"
+            "→ Создам 3 задачи с правильными датами!"
+        ),
+    }
+
+    await query.edit_message_text(
+        texts.get(topic, "Раздел не найден"),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("← Назад", callback_data="help:back")]
+        ])
+    )
+
+
+async def settings_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    user = db.get_user(uid)
+    if not user:
+        await update.message.reply_text("Ошибка загрузки профиля")
+        return
+
+    phone = user.get("phone") or "не установлен"
+    call_enabled = user.get("call_enabled", True)
+    call_before = user.get("call_before_minutes", 60)
+    call_name = user.get("call_name") or update.effective_user.first_name
+    obsidian = user.get("obsidian_webhook") or "не подключён"
+
+    call_status = f"✅ за {call_before} мин" if call_enabled else "❌ отключены"
+
     kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("📋 Задачи", callback_data="cmd:tasks"),
-            InlineKeyboardButton("🎯 Привычки", callback_data="cmd:habits"),
-        ],
-        [
-            InlineKeyboardButton("📊 Прогресс", callback_data="cmd:progress"),
-            InlineKeyboardButton("🌐 Дашборд", callback_data="cmd:web"),
-        ],
-        [
-            InlineKeyboardButton("➕ Добавить задачу", callback_data="cmd:addtask"),
-            InlineKeyboardButton("🎯 Добавить привычку", callback_data="cmd:addhabit"),
-        ],
-        [
-            InlineKeyboardButton("📅 Календарь", callback_data="cmd:calendar"),
-            InlineKeyboardButton("📞 Мой номер", callback_data="cmd:setphone"),
-        ],
+        [InlineKeyboardButton("📞 Телефон", callback_data="set:phone"),
+         InlineKeyboardButton("🔔 Звонки: " + ("вкл" if call_enabled else "выкл"), callback_data="set:call_toggle")],
+        [InlineKeyboardButton("⏰ Звонить за:", callback_data="set:call_time")],
+        [InlineKeyboardButton("👤 Имя для звонка", callback_data="set:call_name")],
+        [InlineKeyboardButton("📅 Календарь", callback_data="cmd:calendar"),
+         InlineKeyboardButton("📓 Obsidian", callback_data="set:obsidian")],
+        [InlineKeyboardButton("🗑 Очистить выполненные", callback_data="set:clear_done")],
     ])
 
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+    await update.message.reply_text(
+        f"⚙️ *Настройки*\n\n"
+        f"📞 Телефон: `{phone}`\n"
+        f"🔔 Звонки: {call_status}\n"
+        f"👤 Имя в звонке: *{call_name}*\n"
+        f"📓 Obsidian: `{obsidian[:30]}...` " + ("✅" if obsidian != "не подключён" else "") + "\n\n"
+        f"Что хочешь изменить?",
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
 
-# ── /web ─────────────────────────────────────────────────────────────────
 
-async def web_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ensure_user(update)
-    token = db.get_web_token(update.effective_user.id)
-    kb = [[InlineKeyboardButton("🌐 Открыть дашборд", url=f"{WEBHOOK_URL}?token={token}")]]
-    await update.message.reply_text("Ваш персональный дашборд:", reply_markup=InlineKeyboardMarkup(kb))
-
-# ── /habits ───────────────────────────────────────────────────────────────
-
-async def habits_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ensure_user(update)
+async def settings_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     uid = update.effective_user.id
-    today = get_today()
-    habits = db.get_habits(uid)
-    logs = db.get_today_logs(uid, today)
-    done_ids = {l["habit_id"] for l in logs}
-    if not habits:
-        await update.message.reply_text("Привычек нет. Добавьте командой /addhabit")
-        return
-    done = sum(1 for h in habits if h["id"] in done_ids)
-    pct = round(done / len(habits) * 100)
-    buttons = []
-    for h in habits:
-        is_done = h["id"] in done_ids
-        streak = h.get("current_streak", 0)
-        streak_text = f" 🔥{streak}" if streak > 1 else ""
-        buttons.append([
-            InlineKeyboardButton(
-                f"{'✅' if is_done else '⬜'} {h['emoji']} {h['name']}{streak_text}",
-                callback_data=f"toggle_habit:{h['id']}:{today}"
-            ),
-            InlineKeyboardButton("⚙️", callback_data=f"habit_settings:{h['id']}"),
+    parts = query.data.split(":")
+    action = parts[1] if len(parts) > 1 else ""
+
+    if action == "phone":
+        await query.edit_message_text(
+            "📞 Отправь номер телефона командой:\n`/setphone +79001234567`",
+            parse_mode="Markdown"
+        )
+
+    elif action == "call_toggle":
+        user = db.get_user(uid)
+        new_val = not user.get("call_enabled", True)
+        db.update_user_settings(uid, {"call_enabled": new_val})
+        status = "включены ✅" if new_val else "отключены ❌"
+        await query.answer(f"Звонки {status}", show_alert=True)
+        await settings_cmd_from_query(query, uid)
+
+    elif action == "call_time":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("15 мин", callback_data="set:call_set:15"),
+             InlineKeyboardButton("30 мин", callback_data="set:call_set:30")],
+            [InlineKeyboardButton("45 мин", callback_data="set:call_set:45"),
+             InlineKeyboardButton("60 мин", callback_data="set:call_set:60")],
+            [InlineKeyboardButton("90 мин", callback_data="set:call_set:90"),
+             InlineKeyboardButton("120 мин", callback_data="set:call_set:120")],
+            [InlineKeyboardButton("← Назад", callback_data="set:back")],
         ])
-    buttons.append([InlineKeyboardButton("➕ Добавить привычку", callback_data="cmd:addhabit")])
-    await update.message.reply_text(f"📅 *Привычки на сегодня* — {pct}%\n", parse_mode="Markdown",
-                                    reply_markup=InlineKeyboardMarkup(buttons))
+        await query.edit_message_text(
+            "⏰ За сколько минут звонить?",
+            reply_markup=kb
+        )
 
-async def toggle_habit_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    _, habit_id, date_str = query.data.split(":", 2)
-    uid = update.effective_user.id
-    is_done = db.toggle_habit(habit_id, uid, date_str)
-    # Обновляем стрик если отметили
-    if is_done:
-        streak, best = db.calculate_streak(habit_id, uid)
-        db.update_streak(habit_id, uid, streak, best, date_str)
-    habits = db.get_habits(uid)
-    logs = db.get_today_logs(uid, date_str)
-    done_ids = {l["habit_id"] for l in logs}
-    done = sum(1 for h in habits if h["id"] in done_ids)
-    pct = round(done / len(habits) * 100) if habits else 0
-    buttons = [[InlineKeyboardButton(
-        f"{'✅' if h['id'] in done_ids else '⬜'} {h['emoji']} {h['name']}",
-        callback_data=f"toggle_habit:{h['id']}:{date_str}")] for h in habits]
-    buttons.append([InlineKeyboardButton("➕ Добавить привычку", callback_data="cmd:addhabit")])
-    await query.edit_message_text(f"📅 *Привычки на сегодня* — {pct}%\n", parse_mode="Markdown",
-                                  reply_markup=InlineKeyboardMarkup(buttons))
+    elif action == "call_set":
+        mins = int(parts[2]) if len(parts) > 2 else 60
+        db.update_user_settings(uid, {"call_before_minutes": mins})
+        await query.answer(f"✅ Буду звонить за {mins} минут", show_alert=True)
+        await settings_cmd_from_query(query, uid)
 
-# ── /tasks ────────────────────────────────────────────────────────────────
+    elif action == "call_name":
+        await query.edit_message_text(
+            "👤 Как обращаться к тебе в звонке?\n\nОтправь имя командой:\n`/setname Владимир`",
+            parse_mode="Markdown"
+        )
 
-async def tasks_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ensure_user(update)
-    uid = update.effective_user.id
-    tasks = db.get_tasks(uid, completed=False)
-    if not tasks:
-        await update.message.reply_text("Задач нет! Просто напиши мне что нужно сделать 💬")
+    elif action == "obsidian":
+        await query.edit_message_text(
+            "📓 *Интеграция с Obsidian*\n\n"
+            "Planify может отправлять задачи прямо в Obsidian vault!\n\n"
+            "*Как настроить:*\n"
+            "1. Установи плагин *Local REST API* в Obsidian\n"
+            "2. Включи его в настройках\n"
+            "3. Скопируй API ключ\n"
+            "4. Отправь команду:\n`/obsidian http://localhost:27123 твой_ключ`\n\n"
+            "Задачи будут добавляться в файл `Tasks.md` в твоём vault!",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("← Назад", callback_data="set:back")]])
+        )
+
+    elif action == "clear_done":
+        from app.database import supabase
+        supabase.table("tasks").delete().eq("user_id", uid).eq("completed", True).execute()
+        await query.answer("✅ Выполненные задачи удалены!", show_alert=True)
+
+    elif action == "back":
+        await settings_cmd_from_query(query, uid)
+
+
+async def settings_cmd_from_query(query, uid: int):
+    user = db.get_user(uid)
+    if not user:
         return
-    today = date.today()
-    buttons = []
-    for t in tasks:
-        days_str = ""
-        if t["deadline"]:
-            delta = (date.fromisoformat(t["deadline"]) - today).days
-            if delta < 0:
-                days_str = " · ⚠️просрочено"
-            elif delta == 0:
-                days_str = " · сегодня"
-            else:
-                days_str = f" · {delta}д"
-        icon = {"urgent": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(t["priority"], "⚪")
-        label = f"{icon} {t['emoji']} {t['title']}{days_str}"[:55]
-        buttons.append([
-            InlineKeyboardButton("✅", callback_data=f"task_done:{t['id']}"),
-            InlineKeyboardButton(label, callback_data=f"task_view:{t['id']}"),
-            InlineKeyboardButton("🗑", callback_data=f"task_del:{t['id']}"),
-        ])
-    await update.message.reply_text(f"📋 *Задачи* ({len(tasks)})\n\n_Нажми ✅ чтобы выполнить_", parse_mode="Markdown",
-                                    reply_markup=InlineKeyboardMarkup(buttons))
+    phone = user.get("phone") or "не установлен"
+    call_enabled = user.get("call_enabled", True)
+    call_before = user.get("call_before_minutes", 60)
+    call_name = user.get("call_name") or "не задано"
+    obsidian = "✅ подключён" if user.get("obsidian_webhook") else "не подключён"
+    call_status = f"✅ за {call_before} мин" if call_enabled else "❌ отключены"
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📞 Телефон", callback_data="set:phone"),
+         InlineKeyboardButton("🔔 Звонки: " + ("вкл" if call_enabled else "выкл"), callback_data="set:call_toggle")],
+        [InlineKeyboardButton("⏰ Звонить за:", callback_data="set:call_time")],
+        [InlineKeyboardButton("👤 Имя для звонка", callback_data="set:call_name")],
+        [InlineKeyboardButton("📅 Календарь", callback_data="cmd:calendar"),
+         InlineKeyboardButton("📓 Obsidian", callback_data="set:obsidian")],
+        [InlineKeyboardButton("🗑 Очистить выполненные", callback_data="set:clear_done")],
+    ])
+    await query.edit_message_text(
+        f"⚙️ *Настройки*\n\n"
+        f"📞 Телефон: `{phone}`\n"
+        f"🔔 Звонки: {call_status}\n"
+        f"👤 Имя: *{call_name}*\n"
+        f"📓 Obsidian: {obsidian}\n\n"
+        f"Что хочешь изменить?",
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
 
-async def task_action_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    uid = update.effective_user.id
-    if query.data.startswith("task_done:"):
-        db.toggle_task(query.data.split(":")[1], uid)
-        await query.edit_message_text("✅ Задача выполнена! 🎉")
-    elif query.data.startswith("task_view:"):
-        task_id = query.data.split(":")[1]
-        tasks = db.get_tasks(uid)
-        t = next((x for x in tasks if x["id"] == task_id), None)
-        if t:
-            today = date.today()
-            dl = ""
-            if t["deadline"]:
-                delta = (date.fromisoformat(t["deadline"]) - today).days
-                dl = f"\n📅 Дедлайн: {t['deadline']}"
-                if delta < 0: dl += f" (просрочено на {abs(delta)}д)"
-                elif delta == 0: dl += " (сегодня!)"
-                else: dl += f" (через {delta}д)"
-            time_str = f"\n⏰ Время: {t.get('time', '')}" if t.get("time") else ""
-            icon = {"urgent": "🔴 Срочно", "high": "🟠 Высокий", "medium": "🟡 Средний", "low": "🟢 Низкий"}.get(t["priority"], "")
-            cat = {"work": "💼 Работа", "personal": "👤 Личное", "health": "🏃 Здоровье", "learning": "📚 Учёба"}.get(t["category"], "")
-            kb = [[InlineKeyboardButton("✅ Выполнить", callback_data=f"task_done:{task_id}"),
-                   InlineKeyboardButton("🗑 Удалить", callback_data=f"task_del:{task_id}")],
-                  [InlineKeyboardButton("← Назад", callback_data="cmd:tasks")]]
-            await query.edit_message_text(
-                f"*{t['emoji']} {t['title']}*{dl}{time_str}\n🎯 {icon}\n🗂 {cat}",
-                parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-    elif query.data.startswith("task_del:"):
-        db.delete_task(query.data.split(":")[1], uid)
-        await query.edit_message_text("🗑 Удалено.")
-    elif query.data == "ai_ok":
-        await query.edit_message_reply_markup(None)
-
-# ── /addhabit conversation ─────────────────────────────────────────────────
-
-async def addhabit_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ensure_user(update)
-    msg = update.callback_query.message if update.callback_query else update.message
-    if update.callback_query: await update.callback_query.answer()
-    await msg.reply_text("Введите название привычки:\n_(например: 🏃 Пробежка 30 мин)_", parse_mode="Markdown")
-    return WAITING_HABIT_NAME
-
-async def addhabit_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    emoji, name = ("✅", text) if not text or text[0].isalnum() else (text[0], text[1:].strip())
-    db.create_habit(update.effective_user.id, name, emoji)
-    await update.message.reply_text(f"✅ Привычка *{emoji} {name}* добавлена!", parse_mode="Markdown")
-    return ConversationHandler.END
-
-# ── /addtask conversation ──────────────────────────────────────────────────
-
-async def addtask_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ensure_user(update)
-    msg = update.callback_query.message if update.callback_query else update.message
-    if update.callback_query: await update.callback_query.answer()
-    await msg.reply_text("📝 Название задачи:")
-    return WAITING_TASK_TITLE
-
-async def addtask_title(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    emoji, title = ("📌", text) if not text or text[0].isalnum() else (text[0], text[1:].strip())
-    ctx.user_data["task"] = {"title": title, "emoji": emoji}
-    kb = [[InlineKeyboardButton("Сегодня", callback_data="dl:today"), InlineKeyboardButton("Завтра", callback_data="dl:tomorrow")],
-          [InlineKeyboardButton("Через 3 дня", callback_data="dl:3"), InlineKeyboardButton("Через неделю", callback_data="dl:7")],
-          [InlineKeyboardButton("Без дедлайна", callback_data="dl:none")]]
-    await update.message.reply_text("📅 Дедлайн:", reply_markup=InlineKeyboardMarkup(kb))
-    return WAITING_TASK_DEADLINE
-
-async def addtask_deadline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    val = query.data.split(":")[1]
-    today = date.today()
-    deadline = {"today": today.isoformat(), "tomorrow": (today + timedelta(1)).isoformat()}.get(val)
-    if val.isdigit(): deadline = (today + timedelta(int(val))).isoformat()
-    ctx.user_data["task"]["deadline"] = deadline
-    kb = [[InlineKeyboardButton("🔴 Срочно", callback_data="pr:urgent"), InlineKeyboardButton("🟠 Высокий", callback_data="pr:high")],
-          [InlineKeyboardButton("🟡 Средний", callback_data="pr:medium"), InlineKeyboardButton("🟢 Низкий", callback_data="pr:low")]]
-    await query.edit_message_text("🎯 Приоритет:", reply_markup=InlineKeyboardMarkup(kb))
-    return WAITING_TASK_PRIORITY
-
-async def addtask_priority(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    task = ctx.user_data["task"]
-    task["priority"] = query.data.split(":")[1]
-    db.create_task(update.effective_user.id, task["title"], task["emoji"], task["deadline"], task["priority"])
-    dl = f"\n📅 {task['deadline']}" if task["deadline"] else ""
-    await query.edit_message_text(f"✅ Задача добавлена!\n\n*{task['emoji']} {task['title']}*{dl}\n{PRIORITY_MAP.get(task['priority'], '')}",
-                                  parse_mode="Markdown")
-    return ConversationHandler.END
-
-async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Отменено.")
-    return ConversationHandler.END
 
 
 async def calendar_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -472,7 +596,7 @@ async def calendar_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     webcal_url = ical_url.replace("https://", "webcal://").replace("http://", "webcal://")
     google_url = f"https://calendar.google.com/calendar/r?cid={ical_url}"
     
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("📱 Добавить на iPhone/Mac", url=webcal_url)],
         [InlineKeyboardButton("🗓 Добавить в Google Calendar", url=google_url)],
@@ -631,6 +755,13 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("web", web_link))
     app.add_handler(CommandHandler("setphone", setphone))
     app.add_handler(CommandHandler("calendar", calendar_cmd))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("settings", settings_cmd))
+    app.add_handler(CommandHandler("setname", setname_cmd))
+    app.add_handler(CommandHandler("obsidian", obsidian_cmd))
+    app.add_handler(CallbackQueryHandler(onboard_callback, pattern="^onboard:"))
+    app.add_handler(CallbackQueryHandler(help_callback, pattern="^help:"))
+    app.add_handler(CallbackQueryHandler(settings_callback, pattern="^set:"))
     app.add_handler(habit_conv)
     app.add_handler(task_conv)
     app.add_handler(CallbackQueryHandler(toggle_habit_callback, pattern="^toggle_habit:"))

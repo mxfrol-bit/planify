@@ -205,6 +205,40 @@ class Database:
                 run = 1
         return current, max(best, current)
 
+    def update_user_settings(self, user_id: int, data: dict) -> bool:
+        res = supabase.table("users").update(data).eq("id", user_id).execute()
+        return bool(res.data)
+
+    # ── Subtasks ───────────────────────────────────────────────────────────
+
+    def get_subtasks(self, task_id: str) -> list:
+        return supabase.table("subtasks").select("*")            .eq("task_id", task_id).order("created_at").execute().data or []
+
+    def create_subtask(self, task_id: str, user_id: int, title: str) -> dict:
+        res = supabase.table("subtasks").insert({
+            "task_id": task_id, "user_id": user_id, "title": title
+        }).execute()
+        return res.data[0] if res.data else {}
+
+    def toggle_subtask(self, subtask_id: str, user_id: int) -> bool:
+        cur = supabase.table("subtasks").select("completed")            .eq("id", subtask_id).eq("user_id", user_id).execute().data
+        if not cur:
+            return False
+        new_val = not cur[0]["completed"]
+        supabase.table("subtasks").update({"completed": new_val})            .eq("id", subtask_id).execute()
+        return new_val
+
+    def delete_subtask(self, subtask_id: str, user_id: int):
+        supabase.table("subtasks").delete()            .eq("id", subtask_id).eq("user_id", user_id).execute()
+
+    def update_task_notes(self, task_id: str, user_id: int, notes: str) -> bool:
+        res = supabase.table("tasks").update({"notes": notes})            .eq("id", task_id).eq("user_id", user_id).execute()
+        return bool(res.data)
+
+    def update_habit_full(self, habit_id: str, user_id: int, data: dict) -> bool:
+        res = supabase.table("habits").update(data).eq("id", habit_id).eq("user_id", user_id).execute()
+        return bool(res.data)
+
     def supabase_get_all_users(self) -> list:
         return supabase.table("users").select("id,first_name").execute().data or []
 

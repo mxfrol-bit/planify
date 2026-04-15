@@ -31,10 +31,17 @@ def get_prompt(text: str) -> str:
     return (
         f"Сегодня {today.isoformat()}. Даты: {dates_hint}.\n"
         f"Сообщение пользователя: {text}\n\n"
-        "В сообщении может быть ОДНА или НЕСКОЛЬКО задач. Раздели их и верни JSON массив.\n"
-        "Формат: [{\"is_task\":true,\"title\":\"название\",\"emoji\":\"эмодзи\",\"deadline\":\"YYYY-MM-DD или null\",\"time\":\"HH:MM или null\",\"priority\":\"urgent/high/medium/low\",\"category\":\"work/personal/health/learning/other\"}]\n"
-        "Если не задача вообще: [{\"is_task\":false}]\n"
-        "Только JSON массив, без markdown и пояснений."
+        "ВАЖНО: В сообщении может быть несколько задач. Они могут быть разделены:\n"
+        "- Нумерацией: 1) 2) 3) или 1. 2. 3.\n"
+        "- Запятыми или точками с запятой\n"
+        "- Словами: также, ещё, потом, плюс\n"
+        "Каждый пункт = отдельная задача в массиве!\n\n"
+        "Верни JSON массив:\n"
+        "[{\"is_task\":true,\"title\":\"короткое название задачи\",\"emoji\":\"подходящий эмодзи\","
+        "\"deadline\":\"YYYY-MM-DD или null\",\"time\":\"HH:MM или null\","
+        "\"priority\":\"urgent/high/medium/low\",\"category\":\"work/personal/health/learning/other\"}]\n"
+        "Если не задача: [{\"is_task\":false}]\n"
+        "ТОЛЬКО JSON массив. Без markdown, без пояснений. Названия делай короткими (до 60 символов)."
     )
 
 
