@@ -728,6 +728,11 @@ async def cmd_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif cmd == "setphone":
         await query.message.reply_text("Отправьте: /setphone +79001234567")
 
+async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Отменено.", reply_markup=MAIN_KB)
+    return ConversationHandler.END
+
+
 # ── AddHabit conversation ─────────────────────────────────────────────────
 WAITING_HABIT_NAME = "WAITING_HABIT_NAME"
 
