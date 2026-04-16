@@ -728,6 +728,142 @@ async def cmd_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif cmd == "setphone":
         await query.message.reply_text("Отправьте: /setphone +79001234567")
 
+async def habits_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    uid = update.effective_user.id
+    msg = update.message or (update.callback_query.message if update.callback_query else None)
+    if not msg:
+        return
+    from datetime import date
+    today = date.today().isoformat()
+    habits = db.get_habits(uid)
+    if not habits:
+        await msg.reply_text("У вас нет привычек. Добавьте через /addhabit", reply_markup=MAIN_KB)
+        return
+    logs = db.get_today_logs(uid, today)
+    done_ids = {l["habit_id"] for l in logs}
+    done = sum(1 for h in habits if h["id"] in done_ids)
+    pct = int(done / len(habits) * 100) if habits else 0
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    buttons = []
+    for h in habits:
+        is_done = h["id"] in done_ids
+        streak = h.get("current_streak", 0)
+        streak_text = f" 🔥{streak}" if streak > 1 else ""
+        buttons.append([
+            InlineKeyboardButton(
+                f"{'✅' if is_done else '⬜'} {h['emoji'] or ''} {h['name']}{streak_text}",
+                callback_data=f"toggle_habit:{h['id']}:{today}"
+            ),
+            InlineKeyboardButton("⚙️", callback_data=f"habit_settings:{h['id']}"),
+        ])
+    buttons.append([InlineKeyboardButton("➕ Добавить привычку", callback_data="cmd:addhabit")])
+    await msg.reply_text(
+        f"📅 *Привычки на сегодня* — {pct}%",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+async def tasks_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    uid = update.effective_user.id
+    msg = update.message or (update.callback_query.message if update.callback_query else None)
+    tasks = db.get_tasks(uid, completed=False)
+    if not tasks:
+        await msg.reply_text("Задач нет! Напишите задачу в свободной форме.", reply_markup=MAIN_KB)
+        return
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    PRIORITY_EMOJI = {"urgent": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
+    sorted_tasks = sorted(tasks, key=lambda t: (t.get("deadline") or "9999", ["urgent","high","medium","low"].index(t.get("priority","medium"))))
+    buttons = []
+    for t in sorted_tasks[:10]:
+        pr = PRIORITY_EMOJI.get(t.get("priority","medium"), "🟡")
+        dl = f" · {t['deadline']}" if t.get("deadline") else ""
+        tm = f" ⏰{t['reminder_time']}" if t.get("reminder_time") else ""
+        title = f"{t.get('emoji','📌')} {t['title'][:30]}{dl}{tm}"
+        buttons.append([
+            InlineKeyboardButton(f"{pr} {title}", callback_data=f"task_view:{t['id']}"),
+            InlineKeyboardButton("✅", callback_data=f"task_done:{t['id']}"),
+        ])
+    await msg.reply_text(
+        f"📋 *Задачи* ({len(tasks)} активных):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+async def web_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    uid = update.effective_user.id
+    msg = update.message or (update.callback_query.message if update.callback_query else None)
+    token = db.get_web_token(uid)
+    base_url = WEBHOOK_URL or "https://planify-production-6462.up.railway.app"
+    url = f"{base_url}/?token={token}"
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Открыть дашборд", url=url)]])
+    await msg.reply_text("🌐 *Ваш персональный дашборд:*", parse_mode="Markdown", reply_markup=kb)
+
+
+async def toggle_habit_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, habit_id, date_str = query.data.split(":", 2)
+    uid = update.effective_user.id
+    is_done = db.toggle_habit(habit_id, uid, date_str)
+    if is_done:
+        try:
+            streak, best = db.calculate_streak(habit_id, uid)
+            db.update_streak(habit_id, uid, streak, best, date_str)
+        except Exception:
+            pass
+
+
+async def task_action_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = update.effective_user.id
+    parts = query.data.split(":")
+    action = parts[0]
+    task_id = parts[1] if len(parts) > 1 else None
+    if action == "task_done" and task_id:
+        db.toggle_task(task_id, uid)
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text("✅ Выполнено!")
+    elif action == "task_del" and task_id:
+        db.delete_task(task_id, uid)
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text("🗑 Удалено.")
+    elif action == "ai_ok":
+        await query.edit_message_reply_markup(reply_markup=None)
+    elif action == "task_view":
+        pass
+
+
+async def setname_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    uid = update.effective_user.id
+    args = ctx.args
+    if not args:
+        await update.message.reply_text("Использование: /setname Владимир")
+        return
+    name = " ".join(args).strip()
+    db.update_user_settings(uid, {"call_name": name})
+    await update.message.reply_text(f"Имя сохранено: {name}")
+
+
+async def obsidian_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    uid = update.effective_user.id
+    args = ctx.args
+    if len(args) < 2:
+        await update.message.reply_text("Использование: /obsidian URL API_KEY")
+        return
+    webhook = f"{args[0]}|{args[1]}"
+    db.update_user_settings(uid, {"obsidian_webhook": webhook})
+    await update.message.reply_text("Obsidian подключён!")
+
+
 async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Отменено.", reply_markup=MAIN_KB)
     return ConversationHandler.END
