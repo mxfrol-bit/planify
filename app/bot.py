@@ -728,6 +728,75 @@ async def cmd_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif cmd == "setphone":
         await query.message.reply_text("Отправьте: /setphone +79001234567")
 
+# ── AddHabit conversation ─────────────────────────────────────────────────
+WAITING_HABIT_NAME = "WAITING_HABIT_NAME"
+
+async def addhabit_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text(
+            "🎯 Как называется привычка?\n_Например: Пробежка 30 мин_",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            "🎯 Как называется привычка?\n_Например: Пробежка 30 мин_",
+            parse_mode="Markdown"
+        )
+    return WAITING_HABIT_NAME
+
+async def addhabit_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    uid = update.effective_user.id
+    name = update.message.text.strip()
+    # Simple emoji detection
+    emojis = {"бег":"🏃","пробежка":"🏃","вода":"💧","чтение":"📚","медитация":"🧘",
+              "витамин":"💊","дневник":"📝","спорт":"💪","йога":"🧘","сон":"😴"}
+    emoji = "✅"
+    for k, v in emojis.items():
+        if k in name.lower():
+            emoji = v
+            break
+    db.create_habit(uid, name, emoji, "daily")
+    await update.message.reply_text(
+        f"✅ Привычка добавлена!\n\n{emoji} *{name}*\n\nТеперь отмечай каждый день в /habits",
+        parse_mode="Markdown",
+        reply_markup=MAIN_KB
+    )
+    return ConversationHandler.END
+
+
+# ── AddTask conversation ───────────────────────────────────────────────────
+WAITING_TASK_TITLE = "WAITING_TASK_TITLE"
+WAITING_TASK_DEADLINE = "WAITING_TASK_DEADLINE"
+WAITING_TASK_PRIORITY = "WAITING_TASK_PRIORITY"
+
+async def addtask_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text(
+            "📋 Напиши задачу в свободной форме:\n_«Встреча с Андреем завтра в 14:00»_\n\nИли просто название:",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            "📋 Напиши задачу в свободной форме:\n_«Встреча с Андреем завтра в 14:00»_",
+            parse_mode="Markdown"
+        )
+    return WAITING_TASK_TITLE
+
+async def addtask_title(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    # Just pass to free text handler which handles AI parsing
+    await handle_free_text(update, ctx)
+    return ConversationHandler.END
+
+async def addtask_deadline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    return ConversationHandler.END
+
+async def addtask_priority(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    return ConversationHandler.END
+
+
 # ── Build app ─────────────────────────────────────────────────────────────
 
 def build_application() -> Application:
